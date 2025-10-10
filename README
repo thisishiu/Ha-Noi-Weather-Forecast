@@ -1,1 +1,10 @@
 Day la nhanh cua Tuna
+
+Cách chạy phần mềm.
+
+Code tải thư viện cần thiết
+install.packages(c("shiny", "ggplot2", "DT"))
+
+Code chạy dự án (sử dụng trong terminal)
+runApp(".")
+Lưu ý: chạy bằng VS code và cài đặt các extension mà VS code đề xuất. R Studio thì chạy console như bình thường
