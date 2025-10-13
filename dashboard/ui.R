@@ -1,7 +1,7 @@
 library(leaflet)
 library(shiny)
 library(shinydashboard)
-
+library(ggplot2)
 # Hà Nội Weather Forecast Dashboard
 bar_width <- 300
 
@@ -47,15 +47,43 @@ ui <- dashboardPage(
                 )
             ),
             tabItem(tabName = "stats",
-                h2("Statistics Section")
+                h2("Statistics Section"),
+                selectInput( 
+                "selectModel", 
+                "Select models below:", 
+                list("A" = "A", "Choice 1B" = "1B", "Choice 1C" = "1C") 
+        ), 
+                textOutput("modelChoice"),
+                fluidRow(
+                style = "display: flex; align-items: stretch;",
+                    column(
+                        width = 3,
+                        fluidRow(
+                            valueBox("1,024", "Số người truy cập", icon = icon("users"), color = "aqua", width = 12),
+                        ),
+                        fluidRow(
+                            valueBox("95%", "Tỷ lệ hoàn thành", icon = icon("check-circle"), color = "green", width = 12),
+                        ),
+                        fluidRow(
+                            valueBox("12", "Lỗi phát hiện", icon = icon("bug"), color = "red", width = 12)
+                        ),
+                    ),
+                    column(
+                            width = 9,
+                            plotOutput("predictPlot")
+                    ),
+                        ),
+                
             ),
             tabItem(tabName = "history",
                 h2("Historical Data Section")
             ),
+
             tabItem(tabName = "predict",
                 h2("Weather Prediction Section")
+
             )
+            
         )
     )
 )
-

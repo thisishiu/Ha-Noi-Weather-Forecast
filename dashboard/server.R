@@ -81,6 +81,17 @@ server <- function(input, output, session) {
         )
     })
 
+    output$predictPlot <- renderPlot({
+    # Ví dụ: biểu đồ đơn giản
+    x <- 1:10
+    y <- x^2
+    plot(x, y, type = "b", col = "blue",
+         main = "Model A",
+         xlab = "X", ylab = "Y = X^2")
+  })
+  output$modelChoice <- renderText({input$selectModel})
+
+  
     # output$temp_box <- renderValueBox({
     #     valueBox(
     #         "32°C", "Nhiệt độ (Hoàng Mai)", icon = icon("thermometer-half"),
