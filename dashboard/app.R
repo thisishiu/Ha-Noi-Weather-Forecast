@@ -1,8 +1,11 @@
 library(shiny)
 library(shinydashboard)
 
+addResourcePath("dashboard", "dashboard")
+
 source("dashboard/ui.R")
 source("dashboard/server.R")
+
 
 runApp(
     shinyApp(ui, server),
