@@ -1,23 +1,62 @@
 import pandas as pd
-import numpy as np
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-from train_hybrid import predict_hybrid
 from pathlib import Path
 
-def evaluate_all():
-    results = []
-    for file in Path("data/processed").glob("*.csv"):
-        district = Path(file).stem
-        pred = predict_hybrid(district)
-        df = pd.read_csv(file)
-        y_true = df.select_dtypes(float).iloc[-1].values
-        mae = mean_absolute_error(y_true, pred)
-        rmse = np.sqrt(mean_squared_error(y_true, pred))
-        results.append({"district": district, "MAE": mae, "RMSE": rmse})
-        print(f"{district}: MAE={mae:.4f}, RMSE={rmse:.4f}")
 
-    pd.DataFrame(results).to_csv("model/eval_results.csv", index=False)
-    print("✅ Evaluation done → model/eval_results.csv")
+def evaluate_all():
+    """Print evaluation results for the best available pipeline.
+
+    Priority:
+    1) Global model results at `model/global_eval.csv`
+    2) Hybrid per-district results at `model/hybrid_eval.csv`
+    """
+    global_path = Path("model/global_eval.csv")
+    hybrid_path = Path("model/hybrid_eval.csv")
+
+    if global_path.exists():
+        try:
+            df = pd.read_csv(global_path)
+        except Exception:
+            print("Global evaluation file is empty or unreadable.")
+            return
+        if df.empty:
+            print("Global evaluation file is empty.")
+            return
+        print("Evaluation results (Global LSTM with district embedding):")
+        for _, row in df.iterrows():
+            district = row.get("district", "?")
+            mae = row.get("MAE", float("nan"))
+            rmse = row.get("RMSE", float("nan"))
+            print(f"{district}: MAE={mae:.4f}, RMSE={rmse:.4f}")
+        df.to_csv("model/eval_results.csv", index=False)
+        print("Evaluation summary saved -> model/eval_results.csv")
+        return
+
+    if hybrid_path.exists():
+        try:
+            df = pd.read_csv(hybrid_path)
+        except Exception:
+            print("Hybrid evaluation file is empty or unreadable.")
+            return
+        if df.empty:
+            print("Hybrid evaluation file is empty.")
+            return
+        print("Evaluation results (Hybrid):")
+        for _, row in df.iterrows():
+            district = row.get("district", "?")
+            mae = row.get("Hybrid_MAE", float("nan"))
+            rmse = row.get("Hybrid_RMSE", float("nan"))
+            print(f"{district}: MAE={mae:.4f}, RMSE={rmse:.4f}")
+        df.to_csv("model/eval_results.csv", index=False)
+        print("Evaluation summary saved -> model/eval_results.csv")
+        return
+
+    print("No evaluation files found. Run training first.")
+
+
+def run_evaluate():
+    """Wrapper to match main.py expectation."""
+    evaluate_all()
+
 
 if __name__ == "__main__":
     evaluate_all()
