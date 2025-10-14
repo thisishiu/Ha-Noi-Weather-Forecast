@@ -1,243 +1,101 @@
-# Weather Forecast Dashboard — Hybrid VAR + LSTM Time Series Forecasting per District (Hanoi)
+# Dự báo thời tiết theo quận (Hà Nội) bằng Global LSTM (Python/PyTorch)
 
-## Overview
-
-This project develops a **time-series-based weather forecasting system** for each **district of Hanoi**, using a **hybrid VAR–LSTM model** that combines statistical forecasting and deep learning.  
-
-The interactive dashboard, built with **R + Shiny**, allows users to:
-- Forecast temperature, humidity, wind speed, pressure, solar radiation, and precipitation.
-- View short-term (6–24 hour) predictions updated in real time through the **Open-Meteo API**.
-- Explore forecast trends by district.
+README này mô tả đúng những gì repo hiện đang triển khai: một pipeline Python dự báo chuỗi thời gian đa biến cho từng quận của Hà Nội bằng một mô hình LSTM toàn cục (global) với embedding quận và embedding tọa độ (Fourier) từ lat/lon.
 
 ---
 
-## Objectives
+## Tổng quan
 
-- Predict multiple meteorological variables simultaneously (multivariate forecasting).  
-- Use past 24–48 hours of data to forecast the next 6–24 hours.  
-- Integrate real-time API updates.  
-- Provide district-level visualization through a Shiny web dashboard.  
-- Combine **VAR (Vector AutoRegression)** and **LSTM (Long Short-Term Memory)** for improved accuracy.
-
----
-
-## Hybrid VAR–LSTM Model
-
-### Concept
-
-The hybrid model leverages **VAR** for linear relationships and **LSTM** for nonlinear temporal dependencies.
-
-```
-Input → VAR model → Forecast_VAR
-              ↓
-        Residuals = Actual – Forecast_VAR
-              ↓
-        LSTM model → Predict(Residuals)
-              ↓
-Final Forecast = Forecast_VAR + LSTM(Residuals)
-```
-
-| Component | Purpose |
-|------------|----------|
-| VAR | Captures short-term linear correlations between weather features |
-| LSTM | Learns nonlinear residual patterns over time |
-| Hybrid Output | Combines both to enhance stability and accuracy |
+- Dữ liệu đầu vào: `data/hanoi_weather.csv` chứa các cột tối thiểu `datetime`, `district`, `lat`, `lon` và các đặc trưng thời tiết.
+- Tiền xử lý: chuẩn hóa tên quận, sắp xếp theo thời gian, chọn đặc trưng, tách train/dev/test theo từng quận, scale MinMax theo train.
+- Huấn luyện: một mô hình Global LSTM dùng embedding theo quận + đặc trưng địa lý Fourier từ `lat/lon`; huấn luyện trên dữ liệu gộp (từng quận vẫn tạo cửa sổ thời gian riêng).
+- Đánh giá: xuất MAE, RMSE theo từng quận trên bộ test kết hợp.
+- Trực quan: vẽ loss toàn cục và biểu đồ Pred vs Actual cho tất cả đặc trưng của một quận.
 
 ---
 
-## Project Structure
+## Thư mục chính
+
+- `data/`
+  - `hanoi_weather.csv`: dữ liệu thô (đồng bộ cột như phần “Đặc trưng”).
+  - `splits/`: dữ liệu sau tách và scale: `train.csv`, `dev.csv`, `test.csv`.
+- `src/`
+  - `preprocess.py`: tiền xử lý + tách train/dev/test (kết hợp giữa các quận).
+  - `train_global.py`: định nghĩa dataset, kiến trúc Global LSTM, train và lưu mô hình.
+  - `evaluate.py`: đọc `model/global_eval.csv` (hoặc `model/hybrid_eval.csv` nếu có) và in kết quả.
+  - `visualize.py`: vẽ `model/global_loss.csv` và biểu đồ Pred vs Actual theo quận.
+  - `main.py`: chạy tuần tự 4 bước: preprocess → train → evaluate → visualize.
+- `model/`
+  - Tạo trong quá trình chạy: `global_lstm.pt`, `global_config.json`, `global_loss.csv`, `global_eval.csv`, và hình trong `model/figures/`.
+
+---
+
+## Cách chạy nhanh
+
+1) Cài môi trường (Python ≥ 3.10). Khuyến nghị:
 
 ```
-weather-forecast-team/
-│
-├── app.R
-│
-├── R/
-│   ├── fetch_weather.R
-│   ├── preprocess_data.R
-│   ├── feature_engineering.R
-│   ├── train_model.R
-│   ├── train_hybrid_model.R
-│   ├── predict_future.R
-│   ├── evaluate_model.R
-│   └── utils.R
-│
-├── data/
-│   ├── hanoi_weather.csv
-│   ├── district_coords.csv
-│   ├── processed/
-│   └── realtime_cache/
-│
-├── model/
-│   ├── model_VAR_HoanKiem.Rds
-│   ├── model_LSTM_HoanKiem.h5
-│   ├── model_VAR_BaVi.Rds
-│   └── model_LSTM_BaVi.h5
-│
-├── dashboard/
-│   ├── ui.R
-│   ├── server.R
-│   ├── theme.R
-│   ├── modules/
-│   └── www/
-│
-├── reports/
-│   ├── EDA_weather_analysis.Rmd
-│   ├── Model_Comparison_Report.Rmd
-│   └── Forecast_Results.pdf
-│
-├── scripts/
-│   ├── schedule_update.R
-│   ├── retrain_model.R
-│   └── deploy_app.R
-│
-├── docs/
-│   ├── project_plan.md
-│   └── API_reference.md
-│
-├── logs/
-│   ├── api_log.txt
-│   └── model_training_log.txt
-│
-├── requirements.txt
-├── renv.lock
-├── Dockerfile
-└── README.md
+pip install -r requirements.txt
+```
+
+Hoặc cài thủ công (tương đương): `pip install numpy pandas scikit-learn matplotlib torch`.
+
+2) Chuẩn bị dữ liệu: đặt file `data/hanoi_weather.csv` với các cột:
+
+- Bắt buộc: `datetime` (parse được datetime), `district` (tên quận), `lat`, `lon`.
+- Đặc trưng được dùng (nếu có sẽ giữ lại):
+  - `temperature_2m`, `relative_humidity_2m`, `dew_point_2m`, `apparent_temperature`,
+  - `surface_pressure`, `precipitation`, `cloud_cover`, `wind_speed_10m`.
+
+3) Chạy pipeline:
+
+```
+python src/preprocess.py      # tiền xử lý + tách + scale
+python src/train_global.py    # huấn luyện Global LSTM
+python src/evaluate.py        # in kết quả MAE/RMSE theo quận
+python src/visualize.py       # lưu hình loss + pred_vs_actual
+```
+
+Hoặc chạy tất cả một lần:
+
+```
+python src/main.py
+```
+
+4) Thiết lập tuỳ chọn hình vẽ (tuỳ chọn):
+
+```
+# Vẽ Pred vs Actual (tất cả đặc trưng) cho một quận cụ thể
+set PLOT_DISTRICT=Thanh_Tri  # Windows PowerShell dùng $env:PLOT_DISTRICT="Thanh_Tri"
+python src/visualize.py
 ```
 
 ---
 
-## Workflow
+## Đầu ra chính
 
-1. **Data Collection** – Retrieve hourly weather data for each district via the Open-Meteo API and store in `data/hanoi_weather.csv`.
-2. **Preprocessing** – Clean missing values, normalize numeric variables, and align timestamps.
-3. **Model Training**  
-   - Train a VAR model for linear dependencies.  
-   - Train an LSTM on the residuals (nonlinear corrections).  
-   - Combine both forecasts.
-4. **Evaluation** – Compute RMSE, MAE, and compare results between VAR, LSTM, and Hybrid.
-5. **Visualization** – Display forecasts and performance metrics on the Shiny dashboard.
-6. **Realtime Update** – Refresh predictions every 3 hours using the Open-Meteo API.
+- `model/global_lstm.pt`: trọng số mô hình Global LSTM.
+- `model/global_config.json`: cấu hình huấn luyện, danh sách đặc trưng, mapping quận → index.
+- `model/global_loss.csv`: lịch sử loss train/val; hình: `model/figures/global_loss.png`.
+- `model/global_eval.csv`: MAE, RMSE theo quận; tổng hợp: `model/eval_results.csv`.
+- `model/figures/global_pred_vs_actual_all_<DISTRICT>.png`: ví dụ: `model/figures/global_pred_vs_actual_all_Thanh_Tri.png`.
 
 ---
 
-## Technical Stack
+## Chi tiết kỹ thuật ngắn gọn
 
-| Category | Tools / Libraries |
-|-----------|-------------------|
-| Language | R |
-| Framework | Shiny, shinydashboard |
-| Forecasting | vars, keras, tensorflow, prophet |
-| Data Processing | dplyr, tidyr, lubridate, jsonlite |
-| Visualization | plotly, ggplot2, leaflet |
-| Automation | cronR, reactiveTimer |
-| Deployment | ShinyApps.io, Docker |
+- Cửa sổ đầu vào: `lookback=24` (mặc định), dự báo đa biến 1 bước cho tất cả đặc trưng.
+- Embedding: `nn.Embedding` cho quận; embedding tọa độ lấy từ `lat/lon` qua Fourier features.
+- Tối ưu: Adam, ReduceLROnPlateau, early stopping theo loss validation.
+- Tách dữ liệu: 70/15/15 theo thời gian riêng cho từng quận, sau đó gộp lại thành `train/dev/test.csv` chung.
+- Scale: MinMaxScaler fit trên train, áp dụng cho dev/test.
+- Thiết bị: tự động dùng GPU nếu có (`torch.cuda.is_available()`).
 
----
-
-## Installation
-
-### 1. Install required packages
-
-```r
-install.packages(c(
-  "shiny", "plotly", "httr", "jsonlite", "dplyr",
-  "vars", "prophet", "keras", "tensorflow",
-  "lubridate", "leaflet", "shinydashboard", "bslib"
-))
-```
-
-For reproducible environments:
-
-```r
-renv::restore()
-```
+Thay đổi siêu tham số: sửa trực tiếp các tham số mặc định trong `src/train_global.py` hàm `train_global(...)` nếu cần.
 
 ---
 
-### 2. Run the application
+## Lưu ý
 
-```r
-shiny::runApp("app.R")
-```
-
-Then open:
-
-```
-http://localhost:3838/
-```
-
----
-
-### 3. Retrain models (optional)
-
-```r
-source("scripts/retrain_model.R")
-```
-
----
-
-### 4. Deploy to ShinyApps.io
-
-```r
-rsconnect::deployApp('path/to/app')
-```
-
-Or use Docker:
-
-```bash
-docker build -t weather-forecast .
-docker run -p 3838:3838 weather-forecast
-```
-
----
-
-## Evaluation Results
-
-| Model | RMSE (°C) | MAE (°C) | Notes |
-|--------|------------|-----------|--------|
-| VAR | 1.82 | 1.45 | Captures short-term linear patterns |
-| LSTM | 1.25 | 1.05 | Learns nonlinear dynamics |
-| Hybrid VAR–LSTM | **1.08** | **0.92** | Best overall accuracy |
-
----
-
-## Dashboard Features
-
-| Feature | Description |
-|----------|--------------|
-| Weather Metrics | Forecasts for temperature, humidity, wind, pressure, radiation, and precipitation |
-| Forecast Graphs | Actual vs predicted (VAR, LSTM, Hybrid) |
-| District Map | Leaflet map displaying average forecasted temperature |
-| Realtime Update | Automatically fetches new data every 3 hours |
-| Model Comparison | Visual and numerical comparison across models |
-
----
-
-## Team Members
-
-| Role | Name | Responsibilities |
-|------|------|------------------|
-| Data Engineer | A | Data collection and preprocessing |
-| Model Developer | B | Build and tune VAR–LSTM models |
-| Evaluator | C | Model validation and visualization |
-| Frontend Developer | D | Shiny UI and dashboard |
-| Backend Integrator | E | API integration and automation |
-| Project Manager | F | Documentation and deployment |
-
----
-
-## Future Work
-
-- Extend forecasting horizon to 48–72 hours using Transformer-based architectures (Informer, TFT).  
-- Add AQI (Air Quality Index) forecasting based on weather parameters.  
-- Introduce spatial modeling across districts using graph-based learning.  
-- Apply explainable AI (DALEX, SHAPforxgboost) for interpretability.  
-- Implement alert systems and heatmap layers in the dashboard.
-
----
-
-## License
-
-This project is for educational and research purposes.  
-Weather data is provided by the [Open-Meteo API](https://open-meteo.com/).
+- Repo này KHÔNG triển khai R/Shiny hay mô hình VAR/Keras. Mọi phần liên quan trong README cũ đã được bỏ để phản ánh đúng hiện trạng.
+- `notebooks/` đang để trống (không ảnh hưởng pipeline).
