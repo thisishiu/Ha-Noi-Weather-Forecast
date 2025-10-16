@@ -94,8 +94,3 @@ python src/visualize.py
 Thay đổi siêu tham số: sửa trực tiếp các tham số mặc định trong `src/train_global.py` hàm `train_global(...)` nếu cần.
 
 ---
-
-## Lưu ý
-
-- Repo này KHÔNG triển khai R/Shiny hay mô hình VAR/Keras. Mọi phần liên quan trong README cũ đã được bỏ để phản ánh đúng hiện trạng.
-- `notebooks/` đang để trống (không ảnh hưởng pipeline).
