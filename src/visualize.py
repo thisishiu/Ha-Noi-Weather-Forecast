@@ -60,35 +60,52 @@ if __name__ == "__main__":
 def run_visualize():
     """Wrapper to match main.py expectation.
 
-    Generates global training loss plot and a few district-level
+    Generates global training loss plot and district-level
     prediction vs actual plots for the global model.
     Saves figures to model/figures.
+    
+    Behavior:
+    - If env `PLOT_DISTRICT` is set: plot only that district.
+    - Else: plot for ALL districts found in evaluation/config.
     """
     try:
         plot_global_loss()
     except Exception as e:
         print(f"Skip global loss plot: {e}")
 
-    # Choose one district: env PLOT_DISTRICT or best by RMSE if available
     eval_path = Path("model/global_eval.csv")
-    if not eval_path.exists():
-        print("No global_eval.csv found; skipping pred-vs-actual plots.")
-        return
-    try:
-        df = pd.read_csv(eval_path)
-    except Exception as e:
-        print(f"Cannot read global_eval.csv: {e}")
-        return
-    if df.empty or "district" not in df.columns or "RMSE" not in df.columns:
-        print("global_eval.csv missing required columns; skipping.")
-        return
+    df = None
+    if eval_path.exists():
+        try:
+            df = pd.read_csv(eval_path)
+        except Exception as e:
+            print(f"Cannot read global_eval.csv: {e}")
+
     target = os.environ.get("PLOT_DISTRICT")
-    if not target:
-        target = df.sort_values("RMSE").iloc[0]["district"]
+    if target:
+        try:
+            plot_global_pred_vs_actual_all(target)
+        except Exception as e:
+            print(f"Skip global pred-vs-actual(all) for {target}: {e}")
+        return
+
+    # Plot for all districts
+    districts = []
+    if df is not None and "district" in df.columns and not df.empty:
+        try:
+            districts = [str(d) for d in df["district"].dropna().unique().tolist()]
+        except Exception:
+            districts = []
+    print(f"Plotting pred-vs-actual(all) for {len(districts)} districts...")
     try:
-        plot_global_pred_vs_actual_all(target)
+        plot_global_pred_vs_actual_all_multi(districts if districts else None)
     except Exception as e:
-        print(f"Skip global pred-vs-actual(all) for {target}: {e}")
+        print(f"Plot-multi failed, falling back to per-district: {e}")
+        for dname in districts:
+            try:
+                plot_global_pred_vs_actual_all(dname)
+            except Exception as e2:
+                print(f"Skip district {dname}: {e2}")
 
 
 # ===== Global model visualization =====
@@ -263,3 +280,84 @@ def plot_global_pred_vs_actual_all(district: str, save_dir: str | Path = "model/
     plt.savefig(fname, dpi=150)
     plt.close()
     print(f"Saved: {fname}")
+
+
+def plot_global_pred_vs_actual_all_multi(districts: list[str] | None = None, save_dir: str | Path = "model/figures", points: int = 200, cols: int = 2):
+    """Efficiently plot Pred vs Actual for all features across multiple districts.
+
+    Loads the model once and iterates districts. If `districts` is None,
+    attempts to derive the list from `model/global_eval.csv` or from config.
+    """
+    from math import ceil
+
+    model, cfg, device = _load_global_model_and_config()
+    lookback = int(cfg["lookback"])
+    feature_names = cfg.get("feature_names", [])
+    district2idx = cfg["district2idx"]
+
+    # Determine district list
+    if districts is None:
+        eval_path = Path("model/global_eval.csv")
+        if eval_path.exists():
+            try:
+                df_eval = pd.read_csv(eval_path)
+                if "district" in df_eval.columns and not df_eval.empty:
+                    districts = [str(d) for d in df_eval["district"].dropna().unique().tolist()]
+            except Exception:
+                districts = None
+    if not districts:
+        districts = list(district2idx.keys())
+
+    test_csv = Path("data/splits/test.csv")
+    if not test_csv.exists():
+        raise FileNotFoundError("data/splits/test.csv not found")
+    df_all = pd.read_csv(test_csv)
+
+    fig_dir = Path(save_dir)
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+    for district in districts:
+        if district not in district2idx:
+            print(f"District '{district}' not in config; skip.")
+            continue
+        g = df_all[df_all["district"] == district]
+        feat_df = g.select_dtypes(include=[float, int, np.number])
+        if feat_df.empty or len(feat_df) <= lookback:
+            print(f"Not enough test data for {district}; skip.")
+            continue
+        values = feat_df.values.astype(np.float32)
+
+        X_list, y_list = [], []
+        for start in range(0, len(values) - lookback):
+            X_list.append(values[start : start + lookback])
+            y_list.append(values[start + lookback])
+        X = torch.tensor(np.stack(X_list), dtype=torch.float32, device=device)
+        d_idx = int(district2idx[district])
+        d = torch.full((X.shape[0],), d_idx, dtype=torch.long, device=device)
+        with torch.no_grad():
+            pred = model(X, d).cpu().numpy()
+        y = np.stack(y_list)
+
+        n = min(points, len(y))
+        num_features = y.shape[1]
+        rows = ceil(num_features / cols)
+
+        import matplotlib.pyplot as plt  # local import for headless safety
+        plt.figure(figsize=(cols * 6, rows * 3))
+        for i in range(num_features):
+            ax = plt.subplot(rows, cols, i + 1)
+            ax.plot(y[:n, i], label="Actual", color="black", linewidth=1.0)
+            ax.plot(pred[:n, i], label="Predicted", color="orange", linewidth=1.0)
+            title = feature_names[i] if i < len(feature_names) else f"feature_{i}"
+            ax.set_title(title)
+            if i % cols == 0:
+                ax.set_ylabel("Value")
+            if i // cols == rows - 1:
+                ax.set_xlabel("Time step")
+            if i == 0:
+                ax.legend(fontsize=8)
+        plt.tight_layout()
+        fname = fig_dir / f"global_pred_vs_actual_all_{district}.png"
+        plt.savefig(fname, dpi=150)
+        plt.close()
+        print(f"Saved: {fname}")

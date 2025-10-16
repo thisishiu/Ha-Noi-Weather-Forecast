@@ -218,7 +218,8 @@ def train_global(
         use_id_emb=True,
         post_dropout=post_dropout,
     ).to(device)
-    criterion = nn.MSELoss()
+    # Use weighted MSE to emphasize challenging features like precipitation
+    criterion = nn.MSELoss(reduction="none")
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=lr_factor, patience=1, min_lr=min_lr
@@ -230,6 +231,14 @@ def train_global(
     history = []
     best_dev = float("inf")
     no_improve = 0
+    # Build per-feature weights (default 1.0), emphasize precipitation if present
+    feat_weights = torch.ones(len(train_ds.feature_names), device=device)
+    try:
+        p_idx = train_ds.feature_names.index("precipitation")
+        feat_weights[p_idx] = 3.0  # emphasize precipitation errors
+    except ValueError:
+        pass
+
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
@@ -239,7 +248,8 @@ def train_global(
             d = d.to(device)
             optimizer.zero_grad()
             pred = model(X, d)
-            loss = criterion(pred, y)
+            loss_mat = criterion(pred, y)  # (B, F)
+            loss = (loss_mat * feat_weights).mean()
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * X.size(0)
@@ -254,7 +264,8 @@ def train_global(
                 y = y.float().to(device)
                 d = d.to(device)
                 pred = model(X, d)
-                loss = criterion(pred, y)
+                loss_mat = criterion(pred, y)
+                loss = (loss_mat * feat_weights).mean()
                 dev_loss_acc += loss.item() * X.size(0)
         dev_loss = dev_loss_acc / max(1, len(dev_ds))
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": dev_loss})
@@ -341,6 +352,12 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         test_df = pd.read_csv(test_df)
 
     results = []
+    # Accumulators for overall (micro) metrics
+    total_abs_err = 0.0
+    total_sq_err = 0.0
+    total_count = 0  # number of time steps (rows) aggregated across districts
+    sum_y_vec = None  # per-feature sums
+    sum_y2_vec = None  # per-feature squared sums
     for district, g in test_df.groupby("district", sort=False):
         if district not in district2idx:
             continue
@@ -360,13 +377,72 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
             pred = model(X, d)
         mae = torch.mean(torch.abs(pred - y)).item()
         rmse = torch.sqrt(torch.mean((pred - y) ** 2)).item()
-        results.append({"district": district, "MAE": mae, "RMSE": rmse})
-        print(f"Global eval - {district}: MAE={mae:.4f}, RMSE={rmse:.4f}")
+        # R^2 (coefficient of determination), averaged across features
+        # Handle edge case when variance is zero (ss_tot == 0)
+        y_mean = torch.mean(y, dim=0, keepdim=True)
+        ss_res = torch.sum((pred - y) ** 2)
+        ss_tot = torch.sum((y - y_mean) ** 2)
+        if ss_tot.item() == 0:
+            # If predictions equal targets exactly, r2=1.0, else 0.0
+            r2 = 1.0 if torch.allclose(pred, y) else 0.0
+        else:
+            r2 = (1.0 - (ss_res / ss_tot)).item()
+        results.append({"district": district, "MAE": mae, "RMSE": rmse, "R2": r2})
+        print(f"Global eval - {district}: MAE={mae:.4f}, RMSE={rmse:.4f}, R2={r2:.4f}")
+
+        # Update overall accumulators (micro)
+        err = pred - y
+        total_abs_err += torch.sum(torch.abs(err)).item()
+        total_sq_err += torch.sum(err * err).item()
+        total_count += y.shape[0]
+        y_sum = torch.sum(y, dim=0).detach().cpu().numpy()
+        y_sum2 = torch.sum(y * y, dim=0).detach().cpu().numpy()
+        if sum_y_vec is None:
+            sum_y_vec = y_sum
+            sum_y2_vec = y_sum2
+        else:
+            sum_y_vec += y_sum
+            sum_y2_vec += y_sum2
 
     out = pd.DataFrame(results)
     out_path = Path("model/global_eval.csv")
     out.to_csv(out_path, index=False)
     print(f"Global evaluation saved -> {out_path}")
+
+    # Compute aggregate metrics (micro and macro) and save
+    try:
+        # Micro (over all samples)
+        denom = max(1, total_count * num_features)
+        micro_mae = total_abs_err / denom
+        micro_rmse = float(np.sqrt(total_sq_err / denom))
+        # R2 micro
+        if total_count > 0 and sum_y_vec is not None and sum_y2_vec is not None:
+            mean_vec = sum_y_vec / float(total_count)
+            ss_tot_total = float(np.sum(sum_y2_vec - float(total_count) * (mean_vec ** 2)))
+            if ss_tot_total == 0.0:
+                micro_r2 = 1.0 if total_sq_err == 0.0 else 0.0
+            else:
+                micro_r2 = 1.0 - (total_sq_err / ss_tot_total)
+        else:
+            micro_r2 = float("nan")
+
+        # Macro (mean of per-district metrics)
+        if not out.empty:
+            macro_mae = float(out["MAE"].mean())
+            macro_rmse = float(out["RMSE"].mean())
+            macro_r2 = float(out["R2"].mean())
+        else:
+            macro_mae = macro_rmse = macro_r2 = float("nan")
+
+        overall_df = pd.DataFrame([
+            {"scope": "micro", "MAE": micro_mae, "RMSE": micro_rmse, "R2": micro_r2},
+            {"scope": "macro", "MAE": macro_mae, "RMSE": macro_rmse, "R2": macro_r2},
+        ])
+        overall_path = Path("model/global_eval_overall.csv")
+        overall_df.to_csv(overall_path, index=False)
+        print(f"Global overall metrics saved -> {overall_path}")
+    except Exception as e:
+        print(f"Failed to compute/save overall metrics: {e}")
 
 
 def run_train():
