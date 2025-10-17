@@ -1,0 +1,29 @@
+#shiny-tab-home .small-box {
+    border-radius: 20px !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: all 0.3s ease;
+}
+
+#shiny-tab-home .small-box:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+}
+
+#shiny-tab-home #district_box .small-box {
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    font-family: 'Arial', 'Segoe UI', 'Tahoma', 'sans-serif';
+}
+
+#shiny-tab-home #district_box .small-box > .inner > h3,
+#shiny-tab-home #district_box .small-box > .inner > p {
+    color: #000 !important;
+    font-weight: bold;
+    font-family: 'Arial', 'Segoe UI', 'Tahoma', 'sans-serif';
+}
+
+ /*icon size (icon in the box)*/
+.icon-large i {
+  font-size: 50px !important;
+}

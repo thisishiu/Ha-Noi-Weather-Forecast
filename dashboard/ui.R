@@ -4,7 +4,7 @@ library(shinydashboard)
 library(ggplot2)
 # Hà Nội Weather Forecast Dashboard
 bar_width <- 300
-
+source("dashboard/modules/predict_ui.r")
 
 ui <- dashboardPage(
     dashboardHeader(title = "Hà Nội Weather Forecast", titleWidth = bar_width),
@@ -79,11 +79,7 @@ ui <- dashboardPage(
                 h2("Historical Data Section")
             ),
 
-            tabItem(tabName = "predict",
-                h2("Weather Prediction Section")
-
-            )
-            
+            predictTab("predict")
         )
     )
 )
