@@ -11,4 +11,7 @@ torch>=2.0
 # Visualization
 matplotlib>=3.6
 
+# CLI progress bars
+tqdm>=4.64
+
 

@@ -14,8 +14,9 @@ from utils import normalize_district
 
 
 class GlobalWeatherDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, district2idx: Dict[str, int], lookback: int = 24):
+    def __init__(self, df: pd.DataFrame, district2idx: Dict[str, int], lookback: int = 24, horizon: int = 1):
         self.lookback = lookback
+        self.horizon = max(1, int(horizon))
         self.district2idx = district2idx
         self.series: Dict[int, np.ndarray] = {}
         self.feature_names: List[str] = []
@@ -32,8 +33,9 @@ class GlobalWeatherDataset(Dataset):
             d_idx = district2idx[dname]
             vals = g[self.feature_names].values.astype(np.float32)
             self.series[d_idx] = vals
-            if len(vals) > self.lookback:
-                for start in range(0, len(vals) - self.lookback):
+            min_len = self.lookback + self.horizon
+            if len(vals) >= min_len:
+                for start in range(0, len(vals) - min_len + 1):
                     self.indices.append((d_idx, start))
 
     def __len__(self):
@@ -43,7 +45,7 @@ class GlobalWeatherDataset(Dataset):
         d_idx, start = self.indices[idx]
         arr = self.series[d_idx]
         X = arr[start : start + self.lookback]
-        y = arr[start + self.lookback]
+        y = arr[start + self.lookback : start + self.lookback + self.horizon]
         return torch.from_numpy(X), torch.from_numpy(y), torch.tensor(d_idx, dtype=torch.long)
 
 
@@ -60,9 +62,11 @@ class GlobalLSTM(nn.Module):
         geo_emb_dim: int = 8,
         use_id_emb: bool = True,
         post_dropout: float = 0.0,
+        horizon: int = 1,
     ):
         super().__init__()
         input_size = num_features
+        self.horizon = max(1, int(horizon))
         self.use_id_emb = use_id_emb
         if use_id_emb:
             self.emb = nn.Embedding(num_embeddings=num_districts, embedding_dim=emb_dim)
@@ -92,7 +96,7 @@ class GlobalLSTM(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,
         )
         self.post_drop = nn.Dropout(p=post_dropout) if post_dropout and post_dropout > 0 else None
-        self.fc = nn.Linear(hidden_size, num_features)
+        self.fc = nn.Linear(hidden_size, num_features * self.horizon)
 
     def forward(self, X: torch.Tensor, d_idx: torch.Tensor):
         B, T, _ = X.shape
@@ -110,6 +114,7 @@ class GlobalLSTM(nn.Module):
         if self.post_drop is not None:
             last = self.post_drop(last)
         pred = self.fc(last)
+        pred = pred.view(B, self.horizon, -1)
         return pred
 
 
@@ -160,7 +165,7 @@ def build_district_index(train_csv: str) -> Dict[str, int]:
 def train_global(
     lookback: int = 24,
     batch_size: int = 128,
-    epochs: int = 5,
+    epochs: int = 30,
     lr: float = 1e-3,
     emb_dim: int = 8,
     hidden_size: int = 64,
@@ -169,10 +174,11 @@ def train_global(
     geo_emb_dim: int = 8,
     fourier_K: int = 2,
     weight_decay: float = 1e-4,
-    es_patience: int = 2,
+    es_patience: int = 5,
     min_lr: float = 1e-5,
     lr_factor: float = 0.5,
-    post_dropout: float = 0.2,
+    post_dropout: float = 0.0,
+    horizon: int = 6,
 ):
     base_root = Path(__file__).resolve().parents[1]
     train_csv = str(base_root / "data/splits/train.csv")
@@ -191,11 +197,11 @@ def train_global(
     dev_df = pd.read_csv(dev_csv) if Path(dev_csv).exists() else pd.DataFrame(columns=train_df.columns)
     test_df = pd.read_csv(test_csv) if Path(test_csv).exists() else pd.DataFrame(columns=train_df.columns)
 
-    train_ds = GlobalWeatherDataset(train_df, district2idx, lookback)
+    train_ds = GlobalWeatherDataset(train_df, district2idx, lookback, horizon)
     if not train_ds.indices:
         print("No training samples found. Ensure splits exist and are non-empty.")
         return
-    dev_ds = GlobalWeatherDataset(dev_df, district2idx, lookback)
+    dev_ds = GlobalWeatherDataset(dev_df, district2idx, lookback, horizon)
 
     num_features = len(train_ds.feature_names)
     num_districts = len(district2idx)
@@ -212,6 +218,7 @@ def train_global(
         geo_emb_dim=geo_emb_dim,
         use_id_emb=True,
         post_dropout=post_dropout,
+        horizon=horizon,
     ).to(device)
 
     def _huber_loss(pred: torch.Tensor, target: torch.Tensor, beta: float = 0.5) -> torch.Tensor:
@@ -253,9 +260,9 @@ def train_global(
             y = y.float().to(device)
             d = d.to(device)
             optimizer.zero_grad()
-            pred = model(X, d)
-            loss_mat = _huber_loss(pred, y, beta=huber_beta)
-            loss = (loss_mat * feat_weights).mean()
+            pred = model(X, d)  # [B,H,F]
+            loss_mat = _huber_loss(pred, y, beta=huber_beta)  # [B,H,F]
+            loss = (loss_mat * feat_weights.view(1, 1, -1)).mean()
             loss.backward()
             optimizer.step()
             total_loss += loss.item() * X.size(0)
@@ -270,7 +277,7 @@ def train_global(
                 d = d.to(device)
                 pred = model(X, d)
                 loss_mat = _huber_loss(pred, y, beta=huber_beta)
-                loss = (loss_mat * feat_weights).mean()
+                loss = (loss_mat * feat_weights.view(1, 1, -1)).mean()
                 dev_loss_acc += loss.item() * X.size(0)
         dev_loss = dev_loss_acc / max(1, len(dev_ds))
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": dev_loss})
@@ -292,6 +299,7 @@ def train_global(
 
     cfg = {
         "lookback": lookback,
+        "horizon": horizon,
         "num_features": num_features,
         "num_districts": num_districts,
         "model_type": "LSTM",
@@ -325,6 +333,7 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         cfg = json.load(f)
 
     lookback = int(cfg["lookback"])
+    horizon = int(cfg.get("horizon", 1))
     district2idx = {k: int(v) for k, v in cfg["district2idx"].items()}
     feature_names = cfg["feature_names"]
     num_features = int(cfg["num_features"])
@@ -345,6 +354,7 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         geo_emb_dim=int(cfg.get("geo_emb_dim", 8)),
         use_id_emb=True,
         post_dropout=float(cfg.get("post_dropout", 0.0)),
+        horizon=horizon,
     )
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
@@ -364,18 +374,20 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
             continue
         d_idx = district2idx[district]
         feat_df = g.select_dtypes(include=[float, int, np.number])
-        if feat_df.empty or len(feat_df) <= lookback:
+        min_len = lookback + horizon
+        if feat_df.empty or len(feat_df) < min_len:
             continue
         values = feat_df.values.astype(np.float32)
         X_list, y_list = [], []
-        for start in range(0, len(values) - lookback):
+        for start in range(0, len(values) - min_len + 1):
             X_list.append(values[start : start + lookback])
-            y_list.append(values[start + lookback])
+            y_list.append(values[start + lookback : start + lookback + horizon])
         X = torch.tensor(np.stack(X_list), dtype=torch.float32, device=device)
         y = torch.tensor(np.stack(y_list), dtype=torch.float32, device=device)
         d = torch.full((X.shape[0],), d_idx, dtype=torch.long, device=device)
         with torch.no_grad():
             pred = model(X, d)
+        # Average across horizon and features for district-level summary
         mae = torch.mean(torch.abs(pred - y)).item()
         rmse = torch.sqrt(torch.mean((pred - y) ** 2)).item()
         y_mean = torch.mean(y, dim=0, keepdim=True)
@@ -391,9 +403,9 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         err = pred - y
         total_abs_err += torch.sum(torch.abs(err)).item()
         total_sq_err += torch.sum(err * err).item()
-        total_count += y.shape[0]
-        y_sum = torch.sum(y, dim=0).detach().cpu().numpy()
-        y_sum2 = torch.sum(y * y, dim=0).detach().cpu().numpy()
+        total_count += y.shape[0] * y.shape[1]  # samples * horizon
+        y_sum = torch.sum(y, dim=(0, 1)).detach().cpu().numpy()
+        y_sum2 = torch.sum(y * y, dim=(0, 1)).detach().cpu().numpy()
         if sum_y_vec is None:
             sum_y_vec = y_sum
             sum_y2_vec = y_sum2

@@ -1,96 +1,96 @@
-# Dự báo thời tiết theo quận (Hà Nội) bằng Global LSTM (Python/PyTorch)
+Weather Forecast (District-level) — TFT Pipeline
 
-README này mô tả đúng những gì repo hiện đang triển khai: một pipeline Python dự báo chuỗi thời gian đa biến cho từng quận của Hà Nội bằng một mô hình LSTM toàn cục (global) với embedding quận và embedding tọa độ (Fourier) từ lat/lon.
+This repository implements a TFT-Light (Transformer-based) multi-horizon forecaster for district-level weather. It includes preprocessing, training, evaluation, visualization, and ONNX export for R (Shiny/Plumber).
 
----
+Sections
+- Overview
+- Structure
+- Data & Preprocessing
+- Quickstart (Train)
+- Artifacts
+- Visualization
+- Evaluate (Test)
+- ONNX Export
+- Use ONNX in R
+- Defaults & Tips
 
-## Tổng quan
+Overview
+- Model: TFT-Light (Transformer encoder + district/geo embeddings + horizon positional embedding)
+- Inputs: lookback window per district (default lookback=48 hours)
+- Outputs: multi-horizon for all features (default horizon=6 hours)
+- Splits: data/splits/{train,dev,test}.csv
+- Artifacts: tft/model/
 
-- Dữ liệu đầu vào: `data/hanoi_weather.csv` chứa các cột tối thiểu `datetime`, `district`, `lat`, `lon` và các đặc trưng thời tiết.
-- Tiền xử lý: chuẩn hóa tên quận, sắp xếp theo thời gian, chọn đặc trưng, tách train/dev/test theo từng quận, scale MinMax theo train.
-- Huấn luyện: một mô hình Global LSTM dùng embedding theo quận + đặc trưng địa lý Fourier từ `lat/lon`; huấn luyện trên dữ liệu gộp (từng quận vẫn tạo cửa sổ thời gian riêng).
-- Đánh giá: xuất MAE, RMSE theo từng quận trên bộ test kết hợp.
-- Trực quan: vẽ loss toàn cục và biểu đồ Pred vs Actual cho tất cả đặc trưng của một quận.
+Structure
+- tft/preprocess.py — build data/splits, add time features, scale
+- tft/train_tft.py — train, save model/config/metrics, evaluate
+- tft/visualize.py — plot loss, per-district Pred vs Actual, horizon-detail
+- tft/run_eval.py — evaluate saved model on test
+- tft/export_onnx.py — export ONNX
+- tft/model/ — global_tft.pt, global_config.json, global_loss.csv, global_eval*.csv, figures/
 
----
+Data & Preprocessing
+- Raw: data/hanoi_weather.csv (required: datetime, district, lat, lon)
+- Core features (examples): temperature_2m, relative_humidity_2m, dew_point_2m, apparent_temperature, surface_pressure, precipitation/rain, cloud_cover, wind_speed_10m
+- Time features from datetime: hour_sin/cos, dow_sin/cos, month_sin/cos
+- Scaling: MinMax fitted on train, applied to dev/test
+- Optional: LOG1P_RAIN=1 applies log1p to precipitation/rain before scaling
 
-## Thư mục chính
-
-- `data/`
-  - `hanoi_weather.csv`: dữ liệu thô (đồng bộ cột như phần “Đặc trưng”).
-  - `splits/`: dữ liệu sau tách và scale: `train.csv`, `dev.csv`, `test.csv`.
-- `src/`
-  - `preprocess.py`: tiền xử lý + tách train/dev/test (kết hợp giữa các quận).
-  - `train_global.py`: định nghĩa dataset, kiến trúc Global LSTM, train và lưu mô hình.
-  - `evaluate.py`: đọc `model/global_eval.csv` (hoặc `model/hybrid_eval.csv` nếu có) và in kết quả.
-  - `visualize.py`: vẽ `model/global_loss.csv` và biểu đồ Pred vs Actual theo quận.
-  - `main.py`: chạy tuần tự 4 bước: preprocess → train → evaluate → visualize.
-- `model/`
-  - Tạo trong quá trình chạy: `global_lstm.pt`, `global_config.json`, `global_loss.csv`, `global_eval.csv`, và hình trong `model/figures/`.
-
----
-
-## Cách chạy nhanh
-
-1) Cài môi trường (Python ≥ 3.10). Khuyến nghị:
-
+Quickstart (Train)
+1) Install deps: `pip install -r requirements.txt`
+2) Run training (PowerShell examples):
 ```
-pip install -r requirements.txt
+# Optional toggles
+# $env:FORCE_PREPROCESS="1"
+# $env:LOG1P_RAIN="1"
+# $env:HUBER_BETA="0.25"
+python tft/main.py
 ```
+This builds splits (if needed), trains TFT-Light, evaluates on test, and writes plots.
 
-Hoặc cài thủ công (tương đương): `pip install numpy pandas scikit-learn matplotlib torch`.
+Artifacts
+- tft/model/global_tft.pt — weights
+- tft/model/global_config.json — lookback, horizon, feature_names, district2idx, model dims
+- tft/model/global_loss.csv — loss per epoch
+- tft/model/global_eval.csv — per-district metrics
+- tft/model/global_eval_overall.csv — micro/macro aggregates
+- tft/model/figures/global_loss.png — learning curve
+- tft/model/figures/global_pred_vs_actual_all_<district>.png — per-district 1-step overlay
+- tft/model/figures/horizon_detail_<district>_<feature>.png — t+1..t+6 subplots for one feature
 
-2) Chuẩn bị dữ liệu: đặt file `data/hanoi_weather.csv` với các cột:
-
-- Bắt buộc: `datetime` (parse được datetime), `district` (tên quận), `lat`, `lon`.
-- Đặc trưng được dùng (nếu có sẽ giữ lại):
-  - `temperature_2m`, `relative_humidity_2m`, `dew_point_2m`, `apparent_temperature`,
-  - `surface_pressure`, `precipitation`, `cloud_cover`, `wind_speed_10m`.
-
-3) Chạy pipeline:
-
+Visualization
+- All plots: `python tft/visualize.py`
+- One district (horizon-detail):
 ```
-python src/preprocess.py      # tiền xử lý + tách + scale
-python src/train_global.py    # huấn luyện Global LSTM
-python src/evaluate.py        # in kết quả MAE/RMSE theo quận
-python src/visualize.py       # lưu hình loss + pred_vs_actual
-```
-
-Hoặc chạy tất cả một lần:
-
-```
-python src/main.py
-```
-
-4) Thiết lập tuỳ chọn hình vẽ (tuỳ chọn):
-
-```
-# Vẽ Pred vs Actual (tất cả đặc trưng) cho một quận cụ thể
-set PLOT_DISTRICT=Thanh_Tri  # Windows PowerShell dùng $env:PLOT_DISTRICT="Thanh_Tri"
-python src/visualize.py
+$env:PLOT_DISTRICT="thanh_tri"
+$env:PLOT_SAMPLES="200"
+$env:PLOT_FEATURES="temperature_2m,precipitation,wind_speed_10m"  # optional
+python tft/visualize.py
 ```
 
----
+Evaluate (Test)
+```
+python tft/run_eval.py
+```
+Writes tft/model/global_eval.csv and tft/model/global_eval_overall.csv.
 
-## Đầu ra chính
+ONNX Export
+```
+python tft/export_onnx.py
+```
+- ONNX: tft/model/global_tft.onnx
+- Config: tft/model/global_config.json
+- Inputs: X [batch, time, num_features] float32 (time >= lookback), district_idx [batch] int64
+- Output: y_pred [batch, horizon, num_features] float32
 
-- `model/global_lstm.pt`: trọng số mô hình Global LSTM.
-- `model/global_config.json`: cấu hình huấn luyện, danh sách đặc trưng, mapping quận → index.
-- `model/global_loss.csv`: lịch sử loss train/val; hình: `model/figures/global_loss.png`.
-- `model/global_eval.csv`: MAE, RMSE theo quận; tổng hợp: `model/eval_results.csv`.
-- `model/figures/global_pred_vs_actual_all_<DISTRICT>.png`: ví dụ: `model/figures/global_pred_vs_actual_all_Thanh_Tri.png`.
+Use ONNX in R (Shiny/Plumber)
+- Requirements: onnxruntime, jsonlite, data.table
+- Steps: load config + ONNX; compute time features; scale by train stats in feature_names order; build X [1, lookback, F] and district_idx [1]; run ONNX to get y_pred [1, H, F].
+- Minimal R example is in comments within this README’s earlier instructions (mirror Python logic).
 
----
+Defaults & Tips
+- Defaults: lookback=48, horizon=6, d_model=192, nhead=4, num_layers=3, dropout=0.1
+- Scheduler: OneCycleLR (batch-level step)
+- Loss: Huber with horizon weighting (gamma=0.5)
+- Env toggles: FORCE_PREPROCESS, LOG1P_RAIN, HUBER_BETA; viz toggles: PLOT_DISTRICT, PLOT_SAMPLES, PLOT_FEATURE(S)
 
-## Chi tiết kỹ thuật ngắn gọn
-
-- Cửa sổ đầu vào: `lookback=24` (mặc định), dự báo đa biến 1 bước cho tất cả đặc trưng.
-- Embedding: `nn.Embedding` cho quận; embedding tọa độ lấy từ `lat/lon` qua Fourier features.
-- Tối ưu: Adam, ReduceLROnPlateau, early stopping theo loss validation.
-- Tách dữ liệu: 70/15/15 theo thời gian riêng cho từng quận, sau đó gộp lại thành `train/dev/test.csv` chung.
-- Scale: MinMaxScaler fit trên train, áp dụng cho dev/test.
-- Thiết bị: tự động dùng GPU nếu có (`torch.cuda.is_available()`).
-
-Thay đổi siêu tham số: sửa trực tiếp các tham số mặc định trong `src/train_global.py` hàm `train_global(...)` nếu cần.
-
----

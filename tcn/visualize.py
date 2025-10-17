@@ -65,6 +65,7 @@ def _load_cfg_and_model() -> Tuple[dict, GlobalTCN, torch.device]:
     district2idx = {k: int(v) for k, v in cfg["district2idx"].items()}
     geo_table = _make_geo_table(district2idx, _build_coords(coords_csv), fourier_K=int(cfg.get("fourier_K", 2)))
 
+    horizon = int(cfg.get("horizon", 1))
     model = GlobalTCN(
         num_features,
         num_districts,
@@ -77,6 +78,7 @@ def _load_cfg_and_model() -> Tuple[dict, GlobalTCN, torch.device]:
         geo_emb_dim=int(cfg.get("geo_emb_dim", 8)),
         use_id_emb=True,
         post_dropout=float(cfg.get("post_dropout", 0.0)),
+        horizon=horizon,
     )
     state = torch.load(model_path, map_location=device)
     model.load_state_dict(state)
@@ -109,33 +111,38 @@ def _predict_series_for_district(
     district: str,
 ) -> Tuple[pd.Series, np.ndarray, np.ndarray, List[str]]:
     lookback = int(cfg["lookback"])
+    horizon = int(cfg.get("horizon", 1))
     feature_names: List[str] = list(cfg["feature_names"]) if "feature_names" in cfg else [
         c for c in test_df.select_dtypes(include=[float, int, np.number]).columns
     ]
     dnorm = normalize_district(district)
 
     g = test_df[test_df["district"].astype(str) == dnorm].copy()
-    if g.empty or len(g) <= lookback:
+    min_len = lookback + horizon
+    if g.empty or len(g) < min_len:
         raise ValueError(f"Not enough data for district {district} to plot.")
     g = g.sort_values("datetime").reset_index(drop=True)
     feat_df = g[feature_names]
     values = feat_df.values.astype(np.float32)
-    # Build rolling windows
+    # Build rolling windows with horizon
     X_list, y_list = [], []
-    for start in range(0, len(values) - lookback):
+    for start in range(0, len(values) - min_len + 1):
         X_list.append(values[start : start + lookback])
-        y_list.append(values[start + lookback])
+        y_list.append(values[start + lookback : start + lookback + horizon])
     X = torch.tensor(np.stack(X_list), dtype=torch.float32, device=device)
     d2i = {k: int(v) for k, v in cfg["district2idx"].items()}
     if dnorm not in d2i:
         raise KeyError(f"District {district} not found in model mapping.")
     d_idx = torch.full((X.shape[0],), d2i[dnorm], dtype=torch.long, device=device)
     with torch.no_grad():
-        pred = model(X, d_idx).detach().cpu().numpy()
-    y_true = np.stack(y_list)
-    # Align timestamps to targets (after lookback)
-    times = g["datetime"].iloc[lookback:].reset_index(drop=True)
-    return times, y_true, pred, feature_names
+        pred = model(X, d_idx).detach().cpu().numpy()  # [N,H,F]
+    y_true = np.stack(y_list)  # [N,H,F]
+    # For plotting 1-step ahead, take the first horizon step
+    pred_1 = pred[:, 0, :]
+    y_true_1 = y_true[:, 0, :]
+    # Align timestamps to the first target step
+    times = g["datetime"].iloc[lookback : lookback + pred_1.shape[0]].reset_index(drop=True)
+    return times, y_true_1, pred_1, feature_names
 
 
 def plot_pred_vs_actual_all(district: str | None = None, show: bool = False):
@@ -211,4 +218,3 @@ def run_visualize():
 
 if __name__ == "__main__":
     run_visualize()
-

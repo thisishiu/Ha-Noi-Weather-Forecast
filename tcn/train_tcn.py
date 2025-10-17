@@ -2,20 +2,27 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, List, Tuple
+from contextlib import contextmanager
 
 import numpy as np
 import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
+from torch.amp import autocast, GradScaler
 from math import pi
+try:
+    from tqdm.auto import tqdm
+except Exception:
+    tqdm = None
 
 from utils import normalize_district
 
 
 class GlobalWeatherDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, district2idx: Dict[str, int], lookback: int = 24):
+    def __init__(self, df: pd.DataFrame, district2idx: Dict[str, int], lookback: int = 24, horizon: int = 1):
         self.lookback = lookback
+        self.horizon = max(1, int(horizon))
         self.district2idx = district2idx
         self.series: Dict[int, np.ndarray] = {}
         self.feature_names: List[str] = []
@@ -31,8 +38,9 @@ class GlobalWeatherDataset(Dataset):
             d_idx = district2idx[dname]
             vals = g[self.feature_names].values.astype(np.float32)
             self.series[d_idx] = vals
-            if len(vals) > self.lookback:
-                for start in range(0, len(vals) - self.lookback):
+            min_len = self.lookback + self.horizon
+            if len(vals) >= min_len:
+                for start in range(0, len(vals) - min_len + 1):
                     self.indices.append((d_idx, start))
 
     def __len__(self):
@@ -42,7 +50,7 @@ class GlobalWeatherDataset(Dataset):
         d_idx, start = self.indices[idx]
         arr = self.series[d_idx]
         X = arr[start : start + self.lookback]
-        y = arr[start + self.lookback]
+        y = arr[start + self.lookback : start + self.lookback + self.horizon]
         return torch.from_numpy(X), torch.from_numpy(y), torch.tensor(d_idx, dtype=torch.long)
 
 
@@ -89,9 +97,11 @@ class GlobalTCN(nn.Module):
         geo_emb_dim: int = 8,
         use_id_emb: bool = True,
         post_dropout: float = 0.0,
+        horizon: int = 1,
     ):
         super().__init__()
         in_ch = num_features
+        self.horizon = max(1, int(horizon))
         self.use_id_emb = use_id_emb
         if use_id_emb:
             self.emb = nn.Embedding(num_embeddings=num_districts, embedding_dim=emb_dim)
@@ -121,7 +131,7 @@ class GlobalTCN(nn.Module):
             c_in = channels
         self.net = nn.Sequential(*blocks)
         self.post_drop = nn.Dropout(p=post_dropout) if post_dropout and post_dropout > 0 else None
-        self.fc = nn.Linear(channels, num_features)
+        self.fc = nn.Linear(channels, num_features * self.horizon)
 
     def forward(self, X: torch.Tensor, d_idx: torch.Tensor):
         B, T, _ = X.shape
@@ -140,6 +150,7 @@ class GlobalTCN(nn.Module):
         if self.post_drop is not None:
             last = self.post_drop(last)
         pred = self.fc(last)
+        pred = pred.view(B, self.horizon, -1)
         return pred
 
 
@@ -187,23 +198,73 @@ def build_district_index(train_csv: str) -> Dict[str, int]:
     return {name: i for i, name in enumerate(districts)}
 
 
+class EMA:
+    def __init__(self, model: nn.Module, decay: float = 0.999):
+        self.decay = float(decay)
+        self.shadow: Dict[str, torch.Tensor] = {}
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                self.shadow[name] = param.data.detach().clone()
+
+    def update(self, model: nn.Module):
+        d = self.decay
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            self.shadow[name].mul_(d).add_(param.data, alpha=(1.0 - d))
+
+    def build_state_dict(self, model: nn.Module) -> Dict[str, torch.Tensor]:
+        base = model.state_dict()
+        out = {k: v.detach().clone() for k, v in base.items()}
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                out[name] = self.shadow[name].detach().clone()
+        return out
+
+
+@contextmanager
+def _ema_scope(model: nn.Module, ema: EMA | None):
+    if ema is None:
+        yield
+        return
+    backup: Dict[str, torch.Tensor] = {n: p.data.detach().clone() for n, p in model.named_parameters() if p.requires_grad}
+    try:
+        for n, p in model.named_parameters():
+            if p.requires_grad:
+                p.data.copy_(ema.shadow[n])
+        yield
+    finally:
+        for n, p in model.named_parameters():
+            if p.requires_grad:
+                p.data.copy_(backup[n])
+
+
 def train_tcn(
-    lookback: int = 24,
+    lookback: int = 48,
     batch_size: int = 128,
-    epochs: int = 5,
-    lr: float = 1e-3,
+    epochs: int = 30,
+    lr: float = 1.5e-3,
     emb_dim: int = 8,
-    tcn_channels: int = 64,
-    tcn_num_blocks: int = 4,
-    tcn_kernel_size: int = 3,
+    tcn_channels: int = 128,
+    tcn_num_blocks: int = 5,
+    tcn_kernel_size: int = 5,
     tcn_dropout: float = 0.1,
     geo_emb_dim: int = 8,
     fourier_K: int = 2,
     weight_decay: float = 1e-4,
-    es_patience: int = 2,
+    es_patience: int = 5,
     min_lr: float = 1e-5,
     lr_factor: float = 0.5,
-    post_dropout: float = 0.2,
+    post_dropout: float = 0.0,
+    horizon: int = 6,
+    grad_clip: float = 1.0,
+    use_ema: bool = False,
+    ema_decay: float = 0.999,
+    num_workers: int = 2,
+    use_amp: bool = True,
+    progress: bool = True,
+    scheduler_type: str = "onecycle",
+    horizon_gamma: float = 0.7,
 ):
     base_root = Path(__file__).resolve().parents[1]
     train_csv = str(base_root / "data/splits/train.csv")
@@ -221,11 +282,11 @@ def train_tcn(
     dev_df = pd.read_csv(dev_csv) if Path(dev_csv).exists() else pd.DataFrame(columns=train_df.columns)
     test_df = pd.read_csv(test_csv) if Path(test_csv).exists() else pd.DataFrame(columns=train_df.columns)
 
-    train_ds = GlobalWeatherDataset(train_df, district2idx, lookback)
+    train_ds = GlobalWeatherDataset(train_df, district2idx, lookback, horizon)
     if not train_ds.indices:
         print("No training samples found. Ensure splits exist and are non-empty.")
         return
-    dev_ds = GlobalWeatherDataset(dev_df, district2idx, lookback)
+    dev_ds = GlobalWeatherDataset(dev_df, district2idx, lookback, horizon)
 
     num_features = len(train_ds.feature_names)
     num_districts = len(district2idx)
@@ -252,6 +313,7 @@ def train_tcn(
         geo_emb_dim=geo_emb_dim,
         use_id_emb=True,
         post_dropout=post_dropout,
+        horizon=horizon,
     ).to(device)
     model_file = model_dir / "global_tcn.pt"
 
@@ -265,12 +327,45 @@ def train_tcn(
     except Exception:
         huber_beta = 0.5
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=lr_factor, patience=1, min_lr=min_lr
+    if scheduler_type == "onecycle":
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=lr, epochs=epochs, steps_per_epoch=1  # placeholder, will set later
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", factor=lr_factor, patience=1, min_lr=min_lr
+        )
+
+    ema = EMA(model, decay=ema_decay) if use_ema else None
+    scaler = GradScaler("cuda", enabled=(use_amp and device.type == "cuda"))
+
+    pin_mem = torch.cuda.is_available()
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=max(0, int(num_workers)),
+        pin_memory=pin_mem,
+        persistent_workers=True if num_workers and num_workers > 0 else False,
+    )
+    dev_loader = DataLoader(
+        dev_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=max(0, int(num_workers)),
+        pin_memory=pin_mem,
+        persistent_workers=True if num_workers and num_workers > 0 else False,
     )
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
-    dev_loader = DataLoader(dev_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+    # If using OneCycle, recreate with correct steps_per_epoch now that loaders are built
+    if scheduler_type == "onecycle":
+        try:
+            steps = max(1, len(train_loader))
+        except Exception:
+            steps = 1
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, max_lr=lr, epochs=epochs, steps_per_epoch=steps
+        )
 
     history = []
     best_dev = float("inf")
@@ -287,43 +382,91 @@ def train_tcn(
     except ValueError:
         pass
 
+    # Horizon weighting: emphasize earlier steps more (gamma^t), normalized by mean
+    H = max(1, int(horizon))
+    h_idx = torch.arange(H, device=device, dtype=torch.float32)
+    h_w = torch.pow(torch.tensor(float(horizon_gamma), device=device), h_idx)
+    h_w = h_w / torch.mean(h_w)
+
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
+        epoch_bar = tqdm(total=len(train_loader), desc=f"Epoch {epoch}/{epochs}", leave=False, ncols=100) if (progress and tqdm is not None) else None
         for X, y, d in train_loader:
             X = X.float().to(device)
             y = y.float().to(device)
             d = d.to(device)
-            optimizer.zero_grad()
-            pred = model(X, d)
-            loss_mat = _huber_loss(pred, y, beta=huber_beta)
-            loss = (loss_mat * feat_weights).mean()
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            with autocast("cuda", enabled=(use_amp and device.type == "cuda")):
+                pred = model(X, d)  # [B,H,F]
+                loss_mat = _huber_loss(pred, y, beta=huber_beta)  # [B,H,F]
+                loss = (loss_mat * feat_weights.view(1, 1, -1) * h_w.view(1, H, 1)).mean()
+            if scaler.is_enabled():
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
+            if grad_clip and grad_clip > 0:
+                if scaler.is_enabled():
+                    scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
+            if scaler.is_enabled():
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            if scheduler_type == "onecycle":
+                try:
+                    scheduler.step()
+                except Exception:
+                    pass
+            if ema is not None:
+                ema.update(model)
             total_loss += loss.item() * X.size(0)
+            if epoch_bar is not None:
+                cur_lr = optimizer.param_groups[0].get("lr", lr)
+                processed = epoch_bar.n + 1
+                avg_disp = total_loss / max(1, processed * X.size(0))
+                epoch_bar.set_postfix({"train_loss": f"{avg_disp:.5f}", "lr": f"{cur_lr:.2e}"})
+                epoch_bar.update(1)
         train_loss = total_loss / len(train_ds)
+        if epoch_bar is not None:
+            epoch_bar.close()
 
         model.eval()
         dev_loss_acc = 0.0
         with torch.no_grad():
-            for X, y, d in dev_loader:
-                X = X.float().to(device)
-                y = y.float().to(device)
-                d = d.to(device)
-                pred = model(X, d)
-                loss_mat = _huber_loss(pred, y, beta=huber_beta)
-                loss = (loss_mat * feat_weights).mean()
-                dev_loss_acc += loss.item() * X.size(0)
+            # Evaluate with EMA weights if enabled
+            with _ema_scope(model, ema):
+                val_bar = tqdm(total=len(dev_loader), desc="Validating", leave=False, ncols=100) if (progress and tqdm is not None) else None
+                for X, y, d in dev_loader:
+                    X = X.float().to(device)
+                    y = y.float().to(device)
+                    d = d.to(device)
+                    pred = model(X, d)
+                    loss_mat = _huber_loss(pred, y, beta=huber_beta)
+                    loss = (loss_mat * feat_weights.view(1, 1, -1) * h_w.view(1, H, 1)).mean()
+                    dev_loss_acc += loss.item() * X.size(0)
+                    if val_bar is not None:
+                        cur = dev_loss_acc / max(1, len(dev_ds))
+                        val_bar.set_postfix({"val_loss": f"{cur:.5f}"})
+                        val_bar.update(1)
+                if val_bar is not None:
+                    val_bar.close()
         dev_loss = dev_loss_acc / max(1, len(dev_ds))
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": dev_loss})
         print(f"Epoch {epoch}: train_loss={train_loss:.6f}, val_loss={dev_loss:.6f}")
 
-        scheduler.step(dev_loss)
+        if scheduler_type != "onecycle":
+            scheduler.step(dev_loss)
 
         if dev_loss < best_dev - 1e-6:
             best_dev = dev_loss
             no_improve = 0
-            torch.save(model.state_dict(), model_file)
+            if ema is not None:
+                state_to_save = ema.build_state_dict(model)
+            else:
+                state_to_save = model.state_dict()
+            torch.save(state_to_save, model_file)
         else:
             no_improve += 1
             if no_improve >= es_patience:
@@ -334,6 +477,7 @@ def train_tcn(
 
     cfg = {
         "lookback": lookback,
+        "horizon": horizon,
         "num_features": num_features,
         "num_districts": num_districts,
         "model_type": "TCN",
@@ -371,6 +515,7 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         cfg = json.load(f)
 
     lookback = int(cfg["lookback"])
+    horizon = int(cfg.get("horizon", 1))
     district2idx = {k: int(v) for k, v in cfg["district2idx"].items()}
     num_features = int(cfg["num_features"])
     num_districts = int(cfg["num_districts"])
@@ -391,6 +536,7 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         geo_emb_dim=int(cfg.get("geo_emb_dim", 8)),
         use_id_emb=True,
         post_dropout=float(cfg.get("post_dropout", 0.0)),
+        horizon=horizon,
     )
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
@@ -410,13 +556,14 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
             continue
         d_idx = district2idx[district]
         feat_df = g.select_dtypes(include=[float, int, np.number])
-        if feat_df.empty or len(feat_df) <= lookback:
+        min_len = lookback + horizon
+        if feat_df.empty or len(feat_df) < min_len:
             continue
         values = feat_df.values.astype(np.float32)
         X_list, y_list = [], []
-        for start in range(0, len(values) - lookback):
+        for start in range(0, len(values) - min_len + 1):
             X_list.append(values[start : start + lookback])
-            y_list.append(values[start + lookback])
+            y_list.append(values[start + lookback : start + lookback + horizon])
         X = torch.tensor(np.stack(X_list), dtype=torch.float32, device=device)
         y = torch.tensor(np.stack(y_list), dtype=torch.float32, device=device)
         d = torch.full((X.shape[0],), d_idx, dtype=torch.long, device=device)
@@ -437,9 +584,9 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         err = pred - y
         total_abs_err += torch.sum(torch.abs(err)).item()
         total_sq_err += torch.sum(err * err).item()
-        total_count += y.shape[0]
-        y_sum = torch.sum(y, dim=0).detach().cpu().numpy()
-        y_sum2 = torch.sum(y * y, dim=0).detach().cpu().numpy()
+        total_count += y.shape[0] * y.shape[1]
+        y_sum = torch.sum(y, dim=(0, 1)).detach().cpu().numpy()
+        y_sum2 = torch.sum(y * y, dim=(0, 1)).detach().cpu().numpy()
         if sum_y_vec is None:
             sum_y_vec = y_sum
             sum_y2_vec = y_sum2
