@@ -7,18 +7,20 @@ library(shinydashboard)
 source("dashboard/setting.R")
 
 home_server <- function(input, output, session) {
-    selected_district_id <- reactiveVal(NULL)
+    home_selected_district_id <- reactiveVal(NULL)
 
-    observeEvent(input$weather_map_shape_click, {
-        click <- input$weather_map_shape_click
-        highlight_id <- click$id
-        selected_district_id(highlight_id)
+    observeEvent(input$home_weather_map_shape_click, {
+        home_click <- input$home_weather_map_shape_click
+        home_highlight_id <- home_click$id
+        home_selected_district_id(home_highlight_id)
+
+        # print(home_highlight_id)
         
-        leafletProxy("weather_map", data = df_mean) %>%
+        leafletProxy("home_weather_map", data = df_mean) %>%
             clearShapes() %>%
             addPolygons(
             layerId = ~district,
-            fillColor = ~ifelse(district == highlight_id, "#FF6666", "#99CCFF"),
+            fillColor = ~ifelse(district == home_highlight_id, "#FF6666", "#99CCFF"),
             color = "#131313",
             weight = 1,
             fillOpacity = 0.7
@@ -26,7 +28,7 @@ home_server <- function(input, output, session) {
     })
 
     observeEvent(input$home_reset_btn, {
-        selected_district_id(NULL)
+        home_selected_district_id(NULL)
         
         leafletProxy("weather_map", data = df_mean) %>%
             clearShapes() %>%
@@ -40,8 +42,8 @@ home_server <- function(input, output, session) {
     })
 
     # Can modify this part to show current weather of selected district (base on df_mean) 
-    filtered_data <- reactive({
-        if (is.null(selected_district_id())) {
+    home_filtered_data <- reactive({
+        if (is.null(home_selected_district_id())) {
             df_mean %>%
                 mutate(
                     across(
@@ -52,12 +54,13 @@ home_server <- function(input, output, session) {
                 )
         } else {
             df_mean %>%
-                filter(district == selected_district_id()) %>%
+                filter(district == home_selected_district_id()) %>%
                 select(district, all_of(stats_col))
         }
     })
 
-    output$weather_map <- renderLeaflet({
+    # Map
+    output$home_weather_map <- renderLeaflet({
         leaflet(df_mean) %>%
             addTiles() %>%
                 addPolygons(
@@ -69,23 +72,22 @@ home_server <- function(input, output, session) {
                 )
     })
 
-    output$district_box <- renderValueBox({
-        data <- filtered_data()
-        div(
-            id = "district_box",
-            valueBox(
-                data$district[1],
-                subtitle = "",
-                icon = icon("map-marker-alt"),
-                color = "light-blue"
-            )
+    # District
+    output$home_district_box <- renderValueBox({
+        home_data <- home_filtered_data()
+        valueBox(
+            home_data$district[1],
+            subtitle = "",
+            icon = icon("map-marker-alt"),
+            color = "light-blue"
         )
     })
 
-    output$rain_box <- renderValueBox({
-        data <- filtered_data()
+    # Rain
+    output$home_rain_box <- renderValueBox({
+        home_data <- home_filtered_data()
         valueBox(
-            paste0(round(data$rain[1], 1), " mm"), 
+            paste0(round(home_data$rain[1], 1), " mm"), 
             paste0("Rain"), 
             icon = icon("cloud-rain"),
             color = "aqua"
@@ -93,10 +95,10 @@ home_server <- function(input, output, session) {
     })
 
     # T2M
-    output$temp_box <- renderValueBox({
-        data <- filtered_data()
+    output$home_temp_box <- renderValueBox({
+        home_data <- home_filtered_data()
         valueBox(
-            paste0(round(data$temperature_2m[1], 1), " °C"), 
+            paste0(round(home_data$temperature_2m[1], 1), " °C"), 
             paste0("Temperature"), 
             icon = icon("thermometer-half"),
             color = "red"
@@ -104,10 +106,10 @@ home_server <- function(input, output, session) {
     })
 
     # Humidity
-    output$humidity_box <- renderValueBox({
-        data <- filtered_data()
+    output$home_humidity_box <- renderValueBox({
+        home_data <- home_filtered_data()
         valueBox(
-            paste0(round(data$relative_humidity_2m[1], 1), " %"), 
+            paste0(round(home_data$relative_humidity_2m[1], 1), " %"), 
             paste0("Humidity"), 
             icon = icon("droplet"),
             color = "blue"
@@ -115,10 +117,10 @@ home_server <- function(input, output, session) {
     })
 
     # Wind Speed
-    output$wind_box <- renderValueBox({
-        data <- filtered_data()
+    output$home_wind_box <- renderValueBox({
+        home_data <- home_filtered_data()
         valueBox(
-            paste0(round(data$wind_speed_10m[1], 1), " km/h"), 
+            paste0(round(home_data$wind_speed_10m[1], 1), " km/h"), 
             paste0("Wind Speed"), 
             icon = icon("wind"),
             color = "teal"

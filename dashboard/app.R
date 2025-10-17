@@ -3,8 +3,8 @@ library(shinydashboard)
 
 addResourcePath("dashboard", "dashboard")
 
-source("dashboard/ui.R")
 source("dashboard/server.R")
+source("dashboard/ui.R")
 
 
 runApp(

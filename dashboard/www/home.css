@@ -9,21 +9,28 @@
     box-shadow: 0 6px 16px rgba(0,0,0,0.25);
 }
 
-#shiny-tab-home #district_box .small-box {
+#shiny-tab-home #home_district_box .small-box {
     background: transparent !important;
     color: #000 !important;
     box-shadow: none !important;
     font-family: 'Arial', 'Segoe UI', 'Tahoma', 'sans-serif';
 }
 
-#shiny-tab-home #district_box .small-box > .inner > h3,
-#shiny-tab-home #district_box .small-box > .inner > p {
+#shiny-tab-home #home_district_box .small-box > .inner > h3,
+#shiny-tab-home #home_district_box .small-box > .inner > p {
     color: #000 !important;
     font-weight: bold;
     font-family: 'Arial', 'Segoe UI', 'Tahoma', 'sans-serif';
 }
 
  /*icon size (icon in the box)*/
-.icon-large i {
-  font-size: 50px !important;
+#shiny-tab-home .icon-large i {
+    font-size: 50px !important;
+}
+
+.content-wrapper,
+.right-side,
+.main-footer,
+.main-header {
+    background-color: #ffffff !important;
 }

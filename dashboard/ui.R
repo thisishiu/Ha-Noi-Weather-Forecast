@@ -5,12 +5,13 @@ library(shinydashboard)
 
 source("dashboard/setting.R")
 source("dashboard/modules/home_ui.R")
+source("dashboard/modules/statistic_ui.R")
 
 
 # Hà Nội Weather Forecast Dashboard
 
 ui <- dashboardPage(
-    dashboardHeader(title = "Hà Nội Weather Forecast", titleWidth = bar_width),
+    dashboardHeader(title = "Hà Nội Weather Forecast", titleWidth = title_width),
     dashboardSidebar(
         width = bar_width,
         sidebarMenu(
@@ -21,11 +22,14 @@ ui <- dashboardPage(
         )
     ),
     dashboardBody(
+        tags$head(
+            tags$link(rel = "stylesheet", type = "text/css", href = "dashboard/www/home.css"),
+            tags$link(rel = "stylesheet", type = "text/css", href = "dashboard/www/statistic.css")
+            # tags$link(rel = "stylesheet", type = "text/css", href = "dashboard/www/home.css")
+        ),
         tabItems(
             homeTab("home"),
-            tabItem(tabName = "statistic",
-                h2("Statistics Section")
-            ),
+            statisticTab("statistic"),
             tabItem(tabName = "history",
                 h2("Historical Data Section")
             ),

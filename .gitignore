@@ -1,4 +1,5 @@
 test_*
 process.ipynb
+.cache*
 
 data/
