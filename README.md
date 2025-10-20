@@ -48,6 +48,20 @@ python tft/main.py
 ```
 This builds splits (if needed), trains TFT-Light, evaluates on test, and writes plots.
 
+Preset Training (12h, 24h, Daily 7-Day)
+```
+# Optional: customize lookbacks for each preset
+# $env:LOOKBACK_H12="48"
+# $env:LOOKBACK_H24="72"
+# $env:LOOKBACK_D7="30"    # 30 days lookback for daily model
+python tft/presets.py
+```
+- Models are saved under:
+  - `tft/model/h12h/` for 12-hour horizon on hourly data
+  - `tft/model/h24h/` for 24-hour horizon on hourly data
+  - `tft/model/daily7d/` for 7-day horizon on daily-aggregated data
+- Daily preset automatically builds `data/splits_daily/` with daily aggregates (sum rain/precip, mean others).
+
 Artifacts
 - tft/model/global_tft.pt — weights
 - tft/model/global_config.json — lookback, horizon, feature_names, district2idx, model dims
@@ -93,4 +107,3 @@ Defaults & Tips
 - Scheduler: OneCycleLR (batch-level step)
 - Loss: Huber with horizon weighting (gamma=0.5)
 - Env toggles: FORCE_PREPROCESS, LOG1P_RAIN, HUBER_BETA; viz toggles: PLOT_DISTRICT, PLOT_SAMPLES, PLOT_FEATURE(S)
-

@@ -14,7 +14,7 @@ def split_indices_per_group(n: int, train_ratio: float = 0.7, dev_ratio: float =
     return slice(0, train_end), slice(train_end, dev_end), slice(dev_end, None)
 
 
-def preprocess(input_path: str = "data/hanoi_weather.csv", output_root: str = "data/splits"):
+def preprocess(input_path: str = "data/hanoi_weather.csv", output_root: str = "data/splits", freq: str | None = None):
     base_root = Path(__file__).resolve().parents[1]
     in_path = Path(input_path)
     if not in_path.is_absolute():
@@ -81,6 +81,26 @@ def preprocess(input_path: str = "data/hanoi_weather.csv", output_root: str = "d
     keep_cols = ["datetime", "district"] + [f for f in features if f in df.columns]
     df = df[keep_cols]
 
+    # Optional resampling (e.g., daily). If freq == 'D', aggregate per-day per-district.
+    if freq is not None:
+        freq = str(freq).strip()
+        if freq.upper() in ("D", "DAILY", "DAY"):
+            # Build aggregation: sum for precipitation-like, mean for others
+            agg_map = {}
+            for col in df.columns:
+                if col in ("datetime", "district"):
+                    continue
+                if col in ("precipitation", "rain"):
+                    agg_map[col] = "sum"
+                else:
+                    agg_map[col] = "mean"
+            df["date"] = df["datetime"].dt.floor("D")
+            grouped = df.groupby(["district", "date"], as_index=False).agg(agg_map)
+            grouped = grouped.rename(columns={"date": "datetime"})
+            # Reorder columns similar to keep_cols
+            ordered_cols = ["datetime", "district"] + [c for c in grouped.columns if c not in ("datetime", "district")]
+            df = grouped[ordered_cols]
+
     parts = {"train": [], "dev": [], "test": []}
     for dname, group in df.groupby("district", sort=False):
         n = len(group)
@@ -120,6 +140,11 @@ def preprocess(input_path: str = "data/hanoi_weather.csv", output_root: str = "d
 
 def run_preprocess():
     preprocess()
+
+
+def run_preprocess_daily():
+    # By default, write daily splits to a separate folder
+    preprocess(output_root="data/splits_daily", freq="D")
 
 
 if __name__ == "__main__":

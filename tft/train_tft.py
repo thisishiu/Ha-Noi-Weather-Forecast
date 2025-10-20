@@ -194,13 +194,20 @@ def train_tft(
     huber_beta_env: str = "HUBER_BETA",
     scheduler_type: str = "onecycle",
     horizon_gamma: float = 0.5,
+    splits_dir: str = "data/splits",
+    run_name: str | None = None,
 ):
     base_root = Path(__file__).resolve().parents[1]
-    train_csv = str(base_root / "data/splits/train.csv")
-    dev_csv = str(base_root / "data/splits/dev.csv")
-    test_csv = str(base_root / "data/splits/test.csv")
+    splits_path = Path(splits_dir)
+    if not splits_path.is_absolute():
+        splits_path = base_root / splits_path
+    train_csv = str(splits_path / "train.csv")
+    dev_csv = str(splits_path / "dev.csv")
+    test_csv = str(splits_path / "test.csv")
     base_dir = Path(__file__).resolve().parent
     model_dir = base_dir / "model"
+    if run_name:
+        model_dir = model_dir / run_name
     model_dir.mkdir(parents=True, exist_ok=True)
 
     district2idx = build_district_index(train_csv)
