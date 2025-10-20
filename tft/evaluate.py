@@ -1,12 +1,23 @@
 import json
+import os
 import pandas as pd
 from pathlib import Path
 
 
-def evaluate_all():
+def _resolve_model_dir(model_dir: str | None) -> Path:
     base_dir = Path(__file__).resolve().parent
-    global_path = base_dir / "model/global_eval.csv"
-    global_overall_path = base_dir / "model/global_eval_overall.csv"
+    if model_dir:
+        p = Path(model_dir)
+    else:
+        env_dir = os.environ.get("MODEL_DIR", "").strip()
+        p = Path(env_dir) if env_dir else (base_dir / "model")
+    return p.resolve()
+
+
+def evaluate_all(model_dir: str | None = None):
+    model_root = _resolve_model_dir(model_dir)
+    global_path = model_root / "global_eval.csv"
+    global_overall_path = model_root / "global_eval_overall.csv"
 
     if global_path.exists():
         try:
@@ -18,7 +29,7 @@ def evaluate_all():
             print("Global evaluation file is empty.")
             return
         model_type = None
-        cfg_path = base_dir / "model/global_config.json"
+        cfg_path = model_root / "global_config.json"
         if cfg_path.exists():
             try:
                 with open(cfg_path, "r", encoding="utf-8") as f:
@@ -52,18 +63,21 @@ def evaluate_all():
                 print(f"{district}: MAE={mae:.4f}, RMSE={rmse:.4f}, R2={r2:.4f}")
             else:
                 print(f"{district}: MAE={mae:.4f}, RMSE={rmse:.4f}")
-        (base_dir / "model").mkdir(parents=True, exist_ok=True)
-        df.to_csv(base_dir / "model/eval_results.csv", index=False)
-        print(f"Evaluation summary saved -> {base_dir / 'model/eval_results.csv'}")
+        model_root.mkdir(parents=True, exist_ok=True)
+        df.to_csv(model_root / "eval_results.csv", index=False)
+        print(f"Evaluation summary saved -> {model_root / 'eval_results.csv'}")
         return
 
     print("No evaluation files found. Run training first.")
 
 
-def run_evaluate():
-    evaluate_all()
+def run_evaluate(model_dir: str | None = None):
+    evaluate_all(model_dir)
 
 
 if __name__ == "__main__":
-    evaluate_all()
-
+    import argparse
+    parser = argparse.ArgumentParser(description="Print evaluation results for a model directory")
+    parser.add_argument("--model-dir", type=str, default=None, help="Path to model directory")
+    args = parser.parse_args()
+    evaluate_all(args.model_dir)

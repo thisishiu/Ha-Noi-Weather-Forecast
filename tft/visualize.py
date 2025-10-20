@@ -13,16 +13,26 @@ from utils import normalize_district
 from train_tft import TFTLight, _make_geo_table  # type: ignore
 
 
-def plot_global_loss(save_path: str | Path | None = None, show: bool = False):
+def _resolve_model_dir(model_dir: str | None) -> Path:
     base_dir = Path(__file__).resolve().parent
-    loss_path = base_dir / "model/global_loss.csv"
+    if model_dir:
+        p = Path(model_dir)
+    else:
+        env_dir = os.environ.get("MODEL_DIR", "").strip()
+        p = Path(env_dir) if env_dir else (base_dir / "model")
+    return p.resolve()
+
+
+def plot_global_loss(save_path: str | Path | None = None, show: bool = False, model_dir: str | None = None):
+    model_root = _resolve_model_dir(model_dir)
+    loss_path = model_root / "global_loss.csv"
     if not loss_path.exists():
         raise FileNotFoundError(f"{loss_path} not found")
     df = pd.read_csv(loss_path)
     if df.empty:
         raise ValueError("global_loss.csv is empty")
     if save_path is None:
-        save_path = base_dir / "model/figures/global_loss.png"
+        save_path = model_root / "figures/global_loss.png"
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
     plt.figure(figsize=(6, 4))
@@ -56,11 +66,10 @@ def _add_time_features(df: pd.DataFrame) -> pd.DataFrame:
     tmp["month_cos"] = np.cos(2 * np.pi * (month - 1) / 12.0)
     return tmp
 
-def _load_cfg_and_model() -> Tuple[dict, TFTLight, torch.device]:
-    base_dir = Path(__file__).resolve().parent
-    model_dir = base_dir / "model"
-    cfg_path = model_dir / "global_config.json"
-    model_path = model_dir / "global_tft.pt"
+def _load_cfg_and_model(model_dir: str | None = None) -> Tuple[dict, TFTLight, torch.device, Path]:
+    model_root = _resolve_model_dir(model_dir)
+    cfg_path = model_root / "global_config.json"
+    model_path = model_root / "global_tft.pt"
     if not cfg_path.exists() or not model_path.exists():
         raise FileNotFoundError("Missing model or config. Train TFT first.")
 
@@ -91,7 +100,7 @@ def _load_cfg_and_model() -> Tuple[dict, TFTLight, torch.device]:
     model.load_state_dict(state)
     model.to(device)
     model.eval()
-    return cfg, model, device
+    return cfg, model, device, model_root
 
 
 def _build_coords(raw_csv: str) -> dict:
@@ -156,7 +165,7 @@ def _predict_series_for_district(
     return times, y_true_1, pred_1, feature_names
 
 
-def plot_pred_vs_actual_all(district: str | None = None, show: bool = False):
+def plot_pred_vs_actual_all(district: str | None = None, show: bool = False, model_dir: str | None = None):
     base_dir = Path(__file__).resolve().parent
     base_root = base_dir.parents[0]
     test_csv = base_root / "data/splits/test.csv"
@@ -167,7 +176,7 @@ def plot_pred_vs_actual_all(district: str | None = None, show: bool = False):
     test_df = pd.read_csv(test_csv, parse_dates=parse_dates)
     test_df = _add_time_features(test_df)
 
-    cfg, model, device = _load_cfg_and_model()
+    cfg, model, device, model_root = _load_cfg_and_model(model_dir)
 
     if district:
         targets = [district]
@@ -175,7 +184,7 @@ def plot_pred_vs_actual_all(district: str | None = None, show: bool = False):
         env_d = os.environ.get("PLOT_DISTRICT", "").strip()
         targets = [env_d] if env_d else (list(cfg.get("district2idx", {}).keys()) or list(sorted(test_df["district"].astype(str).unique())))
 
-    out_dir = base_dir / "model/figures"
+    out_dir = model_root / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for tgt in targets:
@@ -207,7 +216,7 @@ def plot_pred_vs_actual_all(district: str | None = None, show: bool = False):
         print(f"Saved: {out_path}")
 
 
-def plot_horizon_detail(district: str, samples: int = 200, feature: str | None = None, show: bool = False):
+def plot_horizon_detail(district: str, samples: int = 200, feature: str | None = None, show: bool = False, model_dir: str | None = None):
     base_dir = Path(__file__).resolve().parent
     base_root = base_dir.parents[0]
     test_csv = base_root / "data/splits/test.csv"
@@ -219,7 +228,7 @@ def plot_horizon_detail(district: str, samples: int = 200, feature: str | None =
     test_df = pd.read_csv(test_csv, parse_dates=parse_dates)
     test_df = _add_time_features(test_df)
 
-    cfg, model, device = _load_cfg_and_model()
+    cfg, model, device, model_root = _load_cfg_and_model(model_dir)
 
     # Prepare feature names and district mapping
     feature_names: List[str] = list(cfg.get("feature_names", []))
@@ -290,7 +299,7 @@ def plot_horizon_detail(district: str, samples: int = 200, feature: str | None =
     plt.suptitle(f"TFT-Light Horizon Detail - {dnorm}")
     plt.legend(loc="upper right")
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    out_path = base_dir / f"model/figures/horizon_detail_{dnorm}_{feat_name}.png"
+    out_path = model_root / f"figures/horizon_detail_{dnorm}_{feat_name}.png"
     plt.savefig(out_path, dpi=150)
     if show:
         plt.show()
@@ -298,9 +307,9 @@ def plot_horizon_detail(district: str, samples: int = 200, feature: str | None =
     print(f"Saved: {out_path}")
 
 
-def run_visualize():
+def run_visualize(model_dir: str | None = None):
     try:
-        plot_global_loss()
+        plot_global_loss(model_dir=model_dir)
     except Exception as e:
         print(f"Skip global loss plot: {e}")
     try:
@@ -316,7 +325,7 @@ def run_visualize():
             else:
                 # Choose a few common features if not specified
                 try:
-                    cfg, _m, _d = _load_cfg_and_model()
+                    cfg, _m, _d, _r = _load_cfg_and_model(model_dir)
                     all_feats = list(cfg.get("feature_names", []))
                 except Exception:
                     all_feats = []
@@ -329,12 +338,16 @@ def run_visualize():
                 feats = [f for f in preferred if f in all_feats] or (all_feats[:3] if all_feats else [])
             max_feats = int(os.environ.get("PLOT_MAX_FEATURES", "6") or 6)
             for f in feats[:max_feats]:
-                plot_horizon_detail(env_d, samples=samples, feature=f or None)
+                plot_horizon_detail(env_d, samples=samples, feature=f or None, model_dir=model_dir)
         else:
-            plot_pred_vs_actual_all(None)
+            plot_pred_vs_actual_all(None, model_dir=model_dir)
     except Exception as e:
         print(f"Skip pred-vs-actual plot: {e}")
 
 
 if __name__ == "__main__":
-    run_visualize()
+    import argparse
+    parser = argparse.ArgumentParser(description="Visualize TFT model outputs")
+    parser.add_argument("--model-dir", type=str, default=None, help="Path to model directory")
+    args = parser.parse_args()
+    run_visualize(args.model_dir)
