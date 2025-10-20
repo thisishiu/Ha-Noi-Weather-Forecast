@@ -4,7 +4,6 @@ from pathlib import Path
 from preprocess import run_preprocess
 from train_tft import train_tft
 from evaluate import compute_overall
-from visualize import run_visualize
 
 
 def _should_run_preprocess() -> bool:
@@ -47,19 +46,18 @@ if __name__ == "__main__":
     else:
         print("Skip preprocessing (outputs present and up-to-date).")
 
-    run_name = "h12h"
+    run_name = "h6h"
     train_tft(
-        lookback=48,
-        horizon=12,
-        d_model=192,
+        lookback=36,
+        horizon=6,
+        d_model=160,
         nhead=4,
-        num_layers=3,
-        dropout=0.1,
-        weight_decay=1e-4,
+        num_layers=2,
+        dropout=0.15,
+        weight_decay=5e-4,
         run_name=run_name,
     )
 
     model_dir = str(Path(__file__).resolve().parent / f"model/{run_name}")
     os.environ["MODEL_DIR"] = model_dir
     compute_overall(model_dir)
-    run_visualize(model_dir)

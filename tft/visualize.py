@@ -128,9 +128,10 @@ def _predict_series_for_district(
 ) -> Tuple[pd.Series, np.ndarray, np.ndarray, List[str]]:
     lookback = int(cfg["lookback"])
     horizon = int(cfg.get("horizon", 1))
-    feature_names: List[str] = list(cfg["feature_names"]) if "feature_names" in cfg else [
+    # Prefer target_features for plotting
+    feature_names: List[str] = list(cfg.get("target_features", [])) or (list(cfg["feature_names"]) if "feature_names" in cfg else [
         c for c in test_df.select_dtypes(include=[float, int, np.number]).columns
-    ]
+    ])
     dnorm = normalize_district(district)
 
     g = test_df[test_df["district"].astype(str) == dnorm].copy()
@@ -231,7 +232,7 @@ def plot_horizon_detail(district: str, samples: int = 200, feature: str | None =
     cfg, model, device, model_root = _load_cfg_and_model(model_dir)
 
     # Prepare feature names and district mapping
-    feature_names: List[str] = list(cfg.get("feature_names", []))
+    feature_names: List[str] = list(cfg.get("target_features", [])) or list(cfg.get("feature_names", []))
     d2i = {k: int(v) for k, v in cfg["district2idx"].items()}
     dnorm = normalize_district(district)
     key = dnorm

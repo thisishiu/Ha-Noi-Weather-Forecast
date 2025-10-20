@@ -3,7 +3,7 @@ from pathlib import Path
 
 from preprocess import run_preprocess
 from train_tft import train_tft
-from evaluate import run_evaluate
+from evaluate import compute_overall
 from visualize import run_visualize
 
 
@@ -39,27 +39,37 @@ def _should_run_preprocess() -> bool:
 
 
 if __name__ == "__main__":
+    # Apply log1p transform to precipitation-like feature during preprocessing
+    os.environ["LOG1P_RAIN"] = "1"
+    # Force preprocess so the transform takes effect
+    os.environ.setdefault("FORCE_PREPROCESS", "1")
     if _should_run_preprocess():
         run_preprocess()
     else:
         print("Skip preprocessing (outputs present and up-to-date).")
 
     run_name = "h24h"
+    # Make Huber less sensitive to outliers for long horizon
+    os.environ["HUBER_BETA"] = "1.0"
+    # Use longer lookback and moderate regularization to reduce underfitting
     train_tft(
-        lookback=72,
+        lookback=96,
         horizon=24,
-        d_model=160,
+        d_model=192,
         nhead=4,
         num_layers=3,
-        dropout=0.3,
-        weight_decay=1e-3,
-        es_patience=5,
+        dropout=0.18,
+        weight_decay=5e-4,
+        es_patience=12,
         lr=8e-4,
+        scheduler_type="plateau",
+        lr_factor=0.5,
+        min_lr=1e-5,
+        horizon_gamma=0.6,
         run_name=run_name,
     )
 
     model_dir = str(Path(__file__).resolve().parent / f"model/{run_name}")
     os.environ["MODEL_DIR"] = model_dir
-    run_evaluate(model_dir)
+    compute_overall(model_dir)
     run_visualize(model_dir)
-

@@ -235,6 +235,22 @@ def train_tft(
     num_districts = len(district2idx)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    # Define calendar covariates we do NOT want to predict; use them only as inputs
+    calendar_feats = {
+        "hour_sin",
+        "hour_cos",
+        "dow_sin",
+        "dow_cos",
+        "month_sin",
+        "month_cos",
+    }
+    target_features: List[str] = [f for f in train_ds.feature_names if f not in calendar_feats]
+    target_idx = [train_ds.feature_names.index(f) for f in target_features]
+    feature_weight = torch.ones((num_features,), dtype=torch.float32, device=device)
+    for i, f in enumerate(train_ds.feature_names):
+        if f in calendar_feats:
+            feature_weight[i] = 0.0
+
     model = TFTLight(
         num_features=num_features,
         num_districts=num_districts,
@@ -295,7 +311,9 @@ def train_tft(
             with autocast("cuda", enabled=(device.type == "cuda")):
                 pred = model(X, d)
                 loss_mat = _huber_loss(pred, y, beta=huber_beta)
-                loss = (loss_mat * h_w.view(1, H, 1)).mean()
+                loss = (loss_mat * h_w.view(1, H, 1) * feature_weight.view(1, 1, -1)).sum()
+                denom = torch.clamp(feature_weight.sum() * H * X.size(0), min=1.0)
+                loss = loss / denom
             if scaler.is_enabled():
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -323,7 +341,9 @@ def train_tft(
                 d = d.to(device)
                 pred = model(X, d)
                 loss_mat = _huber_loss(pred, y, beta=huber_beta)
-                loss = (loss_mat * h_w.view(1, H, 1)).mean()
+                loss = (loss_mat * h_w.view(1, H, 1) * feature_weight.view(1, 1, -1)).sum()
+                denom = torch.clamp(feature_weight.sum() * H * X.size(0), min=1.0)
+                loss = loss / denom
                 dev_loss_acc += loss.item() * X.size(0)
         dev_loss = dev_loss_acc / max(1, len(dev_ds))
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": dev_loss})
@@ -363,6 +383,7 @@ def train_tft(
         "id_emb_dim": id_emb_dim,
         "district2idx": district2idx,
         "feature_names": train_ds.feature_names,
+        "target_features": target_features,
         "geo_features": "lat_norm,lon_norm + sincos(k*lat, k*lon), k=1..K",
     }
     with open(model_dir / "global_config.json", "w", encoding="utf-8") as f:
@@ -427,6 +448,8 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         d_idx = district2idx[key]
         # Ensure same feature ordering as training
         feature_names = list(cfg.get("feature_names", []))
+        target_features = list(cfg.get("target_features", [])) or feature_names
+        target_idx = [feature_names.index(f) for f in target_features]
         if feature_names:
             feat_df = g[feature_names]
         else:
@@ -444,11 +467,14 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         d = torch.full((X.shape[0],), d_idx, dtype=torch.long, device=device)
         with torch.no_grad():
             pred = model(X, d)
-        mae = torch.mean(torch.abs(pred - y)).item()
-        rmse = torch.sqrt(torch.mean((pred - y) ** 2)).item()
-        y_mean = torch.mean(y, dim=0, keepdim=True)
-        ss_res = torch.sum((pred - y) ** 2)
-        ss_tot = torch.sum((y - y_mean) ** 2)
+        # select only target features for metrics
+        pred_t = pred[:, :, target_idx]
+        y_t = y[:, :, target_idx]
+        mae = torch.mean(torch.abs(pred_t - y_t)).item()
+        rmse = torch.sqrt(torch.mean((pred_t - y_t) ** 2)).item()
+        y_mean = torch.mean(y_t, dim=0, keepdim=True)
+        ss_res = torch.sum((pred_t - y_t) ** 2)
+        ss_tot = torch.sum((y_t - y_mean) ** 2)
         if ss_tot.item() == 0:
             r2 = 1.0 if torch.allclose(pred, y) else 0.0
         else:
@@ -456,12 +482,12 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
         results.append({"district": district, "MAE": mae, "RMSE": rmse, "R2": r2})
         print(f"Global eval - {district}: MAE={mae:.4f}, RMSE={rmse:.4f}, R2={r2:.4f}")
 
-        err = pred - y
+        err = pred_t - y_t
         total_abs_err += torch.sum(torch.abs(err)).item()
         total_sq_err += torch.sum(err * err).item()
-        total_count += y.shape[0] * y.shape[1]
-        y_sum = torch.sum(y, dim=(0, 1)).detach().cpu().numpy()
-        y_sum2 = torch.sum(y * y, dim=(0, 1)).detach().cpu().numpy()
+        total_count += y_t.shape[0] * y_t.shape[1]
+        y_sum = torch.sum(y_t, dim=(0, 1)).detach().cpu().numpy()
+        y_sum2 = torch.sum(y_t * y_t, dim=(0, 1)).detach().cpu().numpy()
         if sum_y_vec is None:
             sum_y_vec = y_sum
             sum_y2_vec = y_sum2
@@ -469,9 +495,9 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
             sum_y_vec += y_sum
             sum_y2_vec += y_sum2
 
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(config_path).parent
     out = pd.DataFrame(results)
-    out_path = base_dir / "model/global_eval.csv"
+    out_path = base_dir / "global_eval.csv"
     out.to_csv(out_path, index=False)
     print(f"Global evaluation saved -> {out_path}")
 
@@ -500,7 +526,7 @@ def evaluate_global(model_path: Path, config_path: Path, test_df: pd.DataFrame |
             {"scope": "micro", "MAE": micro_mae, "RMSE": micro_rmse, "R2": micro_r2},
             {"scope": "macro", "MAE": macro_mae, "RMSE": macro_rmse, "R2": macro_r2},
         ])
-        overall_path = base_dir / "model/global_eval_overall.csv"
+        overall_path = base_dir / "global_eval_overall.csv"
         overall_df.to_csv(overall_path, index=False)
         print(f"Global overall metrics saved -> {overall_path}")
     except Exception as e:

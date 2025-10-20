@@ -3,7 +3,7 @@ from pathlib import Path
 
 from preprocess import run_preprocess
 from train_tft import train_tft
-from evaluate import run_evaluate
+from evaluate import compute_overall
 from visualize import run_visualize
 
 
@@ -39,6 +39,9 @@ def _should_run_preprocess() -> bool:
 
 
 if __name__ == "__main__":
+    # Apply log1p transform to precipitation-like feature during preprocessing
+    os.environ["LOG1P_RAIN"] = "1"
+    os.environ.setdefault("FORCE_PREPROCESS", "1")
     if _should_run_preprocess():
         run_preprocess()
     else:
@@ -58,6 +61,5 @@ if __name__ == "__main__":
 
     model_dir = str(Path(__file__).resolve().parent / f"model/{run_name}")
     os.environ["MODEL_DIR"] = model_dir
-    run_evaluate(model_dir)
+    compute_overall(model_dir)
     run_visualize(model_dir)
-
