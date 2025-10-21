@@ -6,6 +6,7 @@ library(shinydashboard)
 source("dashboard/setting.R")
 source("dashboard/modules/home_ui.R")
 source("dashboard/modules/statistic_ui.R")
+source("dashboard/modules/predict_ui.R")
 
 
 # Hà Nội Weather Forecast Dashboard
@@ -25,16 +26,13 @@ ui <- dashboardPage(
         tags$head(
             tags$link(rel = "stylesheet", type = "text/css", href = "dashboard/www/home.css"),
             tags$link(rel = "stylesheet", type = "text/css", href = "dashboard/www/statistic.css")
-            # tags$link(rel = "stylesheet", type = "text/css", href = "dashboard/www/home.css")
         ),
         tabItems(
             homeTab("home"),
             statisticTab("statistic"),
+            predictTab("predict"),
             tabItem(tabName = "history",
-                h2("Historical Data Section")
-            ),
-            tabItem(tabName = "predict",
-                h2("Weather Prediction Section")
+                h2("History Section Coming Soon!")
             )
         )
     )

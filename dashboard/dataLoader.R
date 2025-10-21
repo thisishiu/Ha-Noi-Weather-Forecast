@@ -58,6 +58,9 @@ df <- as.data.table(df)
 district_list <- unique(df$district)
 # ------------------------------------------------------------
 
+# df[district == c("Hà Nội", "Ba Vì") & as.Date(datetime) == Sys.Date()]
+
+# # ------------------------------------------------------------
 # repeat {    
 #     source("dataLoader.R", local = TRUE)
     

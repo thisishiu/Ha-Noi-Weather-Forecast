@@ -1,0 +1,75 @@
+/* Styling for all plot containers */
+#statistic-tab #statistic_plot_A,
+#statistic-tab #statistic_info_B,
+#statistic-tab #statistic_info_C {
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background: #fff;
+  box-sizing: border-box;
+  overflow: hidden;
+  width: 100%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+#statistic-tab #statistic_plot_A:hover,
+#statistic-tab #statistic_info_B:hover,
+#statistic-tab #statistic_info_C:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Plot output - no padding to prevent content overflow */
+#statistic-tab .shiny-plot-output {
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Layout spacing between rows */
+#statistic-tab .row {
+  margin-bottom: 15px;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+#statistic-tab .row:last-child {
+  margin-bottom: 0;
+}
+
+/* Prevent pickerInput dropdown from pushing other columns */
+#statistic-tab .bootstrap-select {
+  width: 100% !important;
+}
+
+/* Ensure columns don't constrain the dropdown */
+#statistic-tab .col-sm-2 {
+  overflow: visible !important;
+  padding-right: 15px;
+}
+
+/* Reset column padding to prevent overflow */
+#statistic-tab .col-sm-10 [class*="col-"] {
+  padding-left: 7.5px;
+  padding-right: 7.5px;
+}
+
+/* Calendar and picker styling */
+#statistic-tab .air-datepicker {
+  margin-bottom: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+#statistic-tab .bootstrap-select .dropdown-toggle {
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  padding: 10px 15px;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+  #statistic-tab .row {
+    flex-direction: column;
+  }
+}

@@ -145,6 +145,4 @@ new_data['month'] = new_data['datetime'].dt.month
 new_data['year'] = new_data['datetime'].dt.year
 new_data['datetime'] = new_data['datetime'].dt.tz_localize(None)
 
-# print(new_data.head())
-# print(new_data[~new_data['district'].isin(district_map.values())])
 new_data.to_csv("data/weather_date_2.csv", mode="a", header=False, index=False)
