@@ -32,7 +32,7 @@ predictTab <- function(tabName){
                         district_list
                     )
                 )
-            ),z
+            ),
             
             # --- 3 valueBox + biểu đồ ---
             tags$div(

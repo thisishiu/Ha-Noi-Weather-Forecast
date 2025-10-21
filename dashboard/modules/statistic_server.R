@@ -23,13 +23,14 @@ statistic_server <- function(input, output, session) {
             },
             "month" = {
                 req(input$statistic_month)
-                selected_month <- format(as.Date(input$statistic_month), "%Y-%m")
-                df[district %in% districts & format(as.Date(datetime), "%Y-%m") == selected_month]
+                selected_month <- as.numeric(format(as.Date(input$statistic_month), "%m"))
+                selected_year <- as.numeric(format(as.Date(input$statistic_month), "%Y"))
+                df[district %in% districts & month == selected_month & year == selected_year]
             },
             "year" = {
                 req(input$statistic_year)
-                selected_year <- format(as.Date(input$statistic_year), "%Y")
-                df[district %in% districts & format(as.Date(datetime), "%Y") == selected_year]
+                selected_year <- as.numeric(format(as.Date(input$statistic_year), "%Y"))
+                df[district %in% districts & year == selected_year]
             },
             "range" = {
                 req(input$statistic_date_range)
@@ -60,8 +61,8 @@ statistic_server <- function(input, output, session) {
         } else {
             # Aggregate by date for month/year/range views
             data %>%
-                mutate(date = as.Date(datetime)) %>%
-                group_by(date, district) %>%
+                # mutate(date = as.Date(datetime)) %>%
+                group_by(datetime, district) %>%
                 summarise(
                     temperature_2m = mean(temperature_2m, na.rm = TRUE),
                     rain = sum(rain, na.rm = TRUE),
@@ -90,7 +91,7 @@ statistic_server <- function(input, output, session) {
                     breaks = 0:23
                 )
         } else {
-            ggplot(plot_data, aes(x = date)) +
+            ggplot(plot_data, aes(x = datetime)) +
                 scale_x_date(name = "Date", date_labels = "%d/%m")
         }
         
@@ -128,8 +129,8 @@ statistic_server <- function(input, output, session) {
             data
         } else {
             data %>%
-                mutate(date = as.Date(datetime)) %>%
-                group_by(date, district) %>%
+                # mutate(date = as.Date(datetime)) %>%
+                group_by(datetime, district) %>%
                 summarise(
                     relative_humidity_2m = mean(relative_humidity_2m, na.rm = TRUE),
                     .groups = "drop"
@@ -145,7 +146,7 @@ statistic_server <- function(input, output, session) {
                     breaks = 0:23
                 )
         } else {
-            ggplot(plot_data, aes(x = date)) +
+            ggplot(plot_data, aes(x = datetime)) +
                 scale_x_date(name = "Date", date_labels = "%d/%m")
         }
         
@@ -181,8 +182,8 @@ statistic_server <- function(input, output, session) {
             data
         } else {
             data %>%
-                mutate(date = as.Date(datetime)) %>%
-                group_by(date, district) %>%
+                # mutate(date = as.Date(datetime)) %>%
+                group_by(datetime, district) %>%
                 summarise(
                     wind_speed_10m = mean(wind_speed_10m, na.rm = TRUE),
                     .groups = "drop"
@@ -198,7 +199,7 @@ statistic_server <- function(input, output, session) {
                     breaks = 0:23
                 )
         } else {
-            ggplot(plot_data, aes(x = date)) +
+            ggplot(plot_data, aes(x = datetime)) +
                 scale_x_date(name = "Date", date_labels = "%d/%m")
         }
         

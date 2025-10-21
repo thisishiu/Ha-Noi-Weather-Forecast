@@ -13,7 +13,8 @@ df_geo <- df_geo[df_geo$Ten_Tinh == "Hà Nội", ]
 
 # main df ----------------------------------------------------
 df <- fread("data/weather_date_2.csv")
-df$datetime <- as.POSIXct(df$datetime)
+# df$datetime <- as.POSIXct(df$datetime)
+df$datetime <- as.Date(df$datetime)
 df$district_fix <- stri_trans_general(df$district, "Latin-ASCII")
 df$lon <- NULL
 df$lat <- NULL
@@ -57,18 +58,3 @@ df <- as.data.table(df)
 # list of district in Ha Noi (include Ha Noi) ----------------
 district_list <- unique(df$district)
 # ------------------------------------------------------------
-
-# df[district == c("Hà Nội", "Ba Vì") & as.Date(datetime) == Sys.Date()]
-
-# # ------------------------------------------------------------
-# repeat {    
-#     source("dataLoader.R", local = TRUE)
-    
-#     cat("Update at:", Sys.time(), "\n")
-
-#     now <- Sys.time()
-#     next_hour <- as.POSIXct(format(now, "%Y-%m-%d %H:00:00")) + 3600
-#     wait_time <- as.numeric(difftime(next_hour, now, units = "secs"))
-
-#     Sys.sleep(wait_time)
-# }
