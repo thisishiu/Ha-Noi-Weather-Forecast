@@ -128,10 +128,11 @@ def _predict_series_for_district(
 ) -> Tuple[pd.Series, np.ndarray, np.ndarray, List[str]]:
     lookback = int(cfg["lookback"])
     horizon = int(cfg.get("horizon", 1))
-    # Prefer target_features for plotting
-    feature_names: List[str] = list(cfg.get("target_features", [])) or (list(cfg["feature_names"]) if "feature_names" in cfg else [
+    # Use full training features for model input; target_features only for plotting
+    all_feats: List[str] = list(cfg.get("feature_names", [])) or [
         c for c in test_df.select_dtypes(include=[float, int, np.number]).columns
-    ])
+    ]
+    plot_feats: List[str] = list(cfg.get("target_features", [])) or all_feats
     dnorm = normalize_district(district)
 
     g = test_df[test_df["district"].astype(str) == dnorm].copy()
@@ -139,7 +140,7 @@ def _predict_series_for_district(
     if g.empty or len(g) < min_len:
         raise ValueError(f"Not enough data for district {district} to plot.")
     g = g.sort_values("datetime").reset_index(drop=True)
-    feat_df = g[feature_names]
+    feat_df = g[all_feats]
     values = feat_df.values.astype(np.float32)
 
     X_list, y_list = [], []
@@ -160,10 +161,11 @@ def _predict_series_for_district(
     with torch.no_grad():
         pred = model(X, d_idx).detach().cpu().numpy()  # [N,H,F]
     y_true = np.stack(y_list)
-    pred_1 = pred[:, 0, :]
-    y_true_1 = y_true[:, 0, :]
+    idxs = [all_feats.index(f) for f in plot_feats]
+    pred_1 = pred[:, 0, :][:, idxs]
+    y_true_1 = y_true[:, 0, :][:, idxs]
     times = g["datetime"].iloc[lookback : lookback + pred_1.shape[0]].reset_index(drop=True)
-    return times, y_true_1, pred_1, feature_names
+    return times, y_true_1, pred_1, plot_feats
 
 
 def plot_pred_vs_actual_all(district: str | None = None, show: bool = False, model_dir: str | None = None):
@@ -232,7 +234,8 @@ def plot_horizon_detail(district: str, samples: int = 200, feature: str | None =
     cfg, model, device, model_root = _load_cfg_and_model(model_dir)
 
     # Prepare feature names and district mapping
-    feature_names: List[str] = list(cfg.get("target_features", [])) or list(cfg.get("feature_names", []))
+    all_feats: List[str] = list(cfg.get("feature_names", []))
+    plot_feats: List[str] = list(cfg.get("target_features", [])) or all_feats
     d2i = {k: int(v) for k, v in cfg["district2idx"].items()}
     dnorm = normalize_district(district)
     key = dnorm
@@ -252,7 +255,7 @@ def plot_horizon_detail(district: str, samples: int = 200, feature: str | None =
     if g.empty or len(g) < min_len:
         raise ValueError(f"Not enough data for district {district} to plot.")
     g = g.sort_values("datetime").reset_index(drop=True)
-    feat_df = g[feature_names]
+    feat_df = g[all_feats]
     values = feat_df.values.astype(np.float32)
 
     # Build windows
@@ -267,16 +270,19 @@ def plot_horizon_detail(district: str, samples: int = 200, feature: str | None =
     y_true = np.stack(y_list)  # [N,H,F]
 
     # Choose feature
-    if feature and feature in feature_names:
-        fidx = feature_names.index(feature)
+    if feature and feature in all_feats:
+        fidx = all_feats.index(feature)
         feat_name = feature
     else:
-        if "temperature_2m" in feature_names:
-            fidx = feature_names.index("temperature_2m")
+        if plot_feats and plot_feats[0] in all_feats:
+            fidx = all_feats.index(plot_feats[0])
+            feat_name = plot_feats[0]
+        elif "temperature_2m" in all_feats:
+            fidx = all_feats.index("temperature_2m")
             feat_name = "temperature_2m"
         else:
             fidx = 0
-            feat_name = feature_names[0] if feature_names else "feature_0"
+            feat_name = all_feats[0] if all_feats else "feature_0"
 
     N = min(int(samples), pred.shape[0])
     pred = pred[:N, :, fidx]

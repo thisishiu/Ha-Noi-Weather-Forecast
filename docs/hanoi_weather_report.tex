@@ -1,0 +1,225 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[T5]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\geometry{margin=2.5cm}
+
+\title{District-Level Weather Forecasting Models (Hanoi)}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Metrics for Evaluation}
+\begin{itemize}
+    \item \textbf{MAE (Mean Absolute Error)}: average absolute deviation between forecasts and observations across each $H$-step horizon window.
+    \item \textbf{RMSE (Root Mean Squared Error)}: square root of the mean squared deviation; more sensitive to outliers.
+    \item \textbf{R\textsuperscript{2} (Coefficient of Determination)}: proportion of variance explained by the model; negative means worse than predicting the historical mean.
+    \item We report \textit{micro} (aggregated across all samples and features) and \textit{macro} (averaged by district) summaries. CSV outputs are written per pipeline (e.g. \texttt{global\_eval\_overall.csv} or \texttt{overall\_metrics.csv}).
+\end{itemize}
+
+\subsection*{Formal Definitions and Aggregation}
+Let $\hat{Y} \in \mathbb{R}^{N\times H\times F}$ be predictions and $Y$ ground truth, where $N$ is the number of windows, $H$ the horizon, and $F$ the number of target features. Define $M=N\cdot H\cdot F$.
+\begin{align*}
+\mathrm{MAE} &= \frac{1}{M} \sum_{n=1}^{N} \sum_{t=1}^{H} \sum_{f=1}^{F} \big|\hat{Y}_{n,t,f} - Y_{n,t,f}\big|,\\
+\mathrm{RMSE} &= \sqrt{\frac{1}{M} \sum_{n,t,f} \big(\hat{Y}_{n,t,f} - Y_{n,t,f}\big)^2},\\
+R^2 &= 1 - \frac{\sum_{n,t,f} \big(\hat{Y}_{n,t,f} - Y_{n,t,f}\big)^2}{\sum_{n,t,f} \big(Y_{n,t,f} - \overline{Y}\big)^2},\quad \overline{Y}=\frac{1}{M}\sum_{n,t,f} Y_{n,t,f}.
+\end{align*}
+\textbf{Micro}: cộng gộp toàn bộ mẫu/horizon/feature lại (tất cả quận chung một rổ). \textbf{Macro}: tính điểm từng quận rồi lấy trung bình (mỗi quận trọng số bằng nhau).
+
+\noindent\textbf{Ghi chú (VN — dễ nhớ)}
+\begin{itemize}
+    \item MAE: sai số tuyệt đối trung bình ("lệch bao nhiêu").
+    \item RMSE: phạt nặng sai số lớn ("nhạy outlier").
+    \item $R^2$: đo mức độ bám biến động; gần 1 là tốt, âm là tệ hơn trung bình lịch sử.
+\end{itemize}
+
+\section{Models Summary}
+\begin{itemize}
+    \item \textbf{Global LSTM (6h)}: multi-layer LSTM with district and geo embeddings. Current run uses a $48 \times 8$ lookback window; metrics below reflect the latest trained artefacts (see file references).
+    \item \textbf{Global TCN (6h)}: Temporal Convolutional Network (dilated causal convolutions) over a 48-hour lookback, with embeddings concatenated to inputs.
+    \item \textbf{TFT-Light (6h/12h/7d)}: lightweight Temporal Fusion Transformer with sinusoidal time features (hour, weekday, month), Transformer encoder layers, and horizon positional embeddings. Report focuses on 6h/12h/7d; 24h is omitted.
+\end{itemize}
+
+\section{Model Ideas and Formulations}
+\subsection{Global LSTM}
+\textbf{Idea.} Model temporal dynamics with recurrent memory; inject district and geo context as static embeddings repeated across the lookback window.
+
+\noindent\textbf{Inputs.} For district $d$, let weather window $X\in\mathbb{R}^{L\times F}$ (lookback $L$, features $F$). District embedding $e_d\in\mathbb{R}^{E}$ and geo features $\phi_d\in\mathbb{R}^{G}$ (Fourier lat/lon) are mapped by an MLP to $z_d\in\mathbb{R}^{G'}$. Construct per-step input
+\[
+u_t = [\,x_t\;;\; e_d\;;\; z_d\,] \in \mathbb{R}^{F+E+G'}\,,\quad t=1..L.
+\]
+
+\noindent\textbf{LSTM cell.} For hidden size $H_{\text{lstm}}$:
+\begin{align*}
+i_t &= \sigma(W_i u_t + U_i h_{t-1} + b_i), & f_t &= \sigma(W_f u_t + U_f h_{t-1} + b_f),\\
+o_t &= \sigma(W_o u_t + U_o h_{t-1} + b_o), & g_t &= \tanh(W_g u_t + U_g h_{t-1} + b_g),\\
+c_t &= f_t\odot c_{t-1} + i_t\odot g_t, & h_t &= o_t\odot \tanh(c_t), \quad t=1..L.
+\end{align*}
+Take the last state $h_L$ and map to horizon $H$ and features $F$ via a linear head:
+\[
+\widehat{Y} = \mathrm{reshape}\big( W_{\text{head}} h_L + b,\; (H, F) \big)\,.
+\]
+
+\subsection{Global TCN}
+\textbf{Idea.} Use dilated causal convolutions to cover long receptive fields efficiently; inject district/geo context as extra channels.
+
+\noindent\textbf{Inputs.} Form $u_t$ as in LSTM and stack into $U\in\mathbb{R}^{L\times C}$ with $C=F+E+G'$, then transpose to channel-first $U^T\in\mathbb{R}^{C\times L}$.
+
+\noindent\textbf{Dilated causal block.} For block $b$ with dilation $d=2^b$ and kernel $k$:
+\[
+\big(\mathrm{Conv}_{d,k}(x)\big)_t = \sum_{j=0}^{k-1} W_j\, x_{\,t - d\cdot j}\,,\quad x_t=0\;\text{if}\; t\le 0.\]
+Each TemporalBlock applies two such convs with ReLU+Dropout and a residual connection:
+\[
+\mathrm{TB}(x) = x + \mathrm{Drop}\,\mathrm{ReLU}\,\mathrm{Conv}_{d,k}\big(\mathrm{Drop}\,\mathrm{ReLU}\,\mathrm{Conv}_{d,k}(x)\big).
+\]
+Stack $B$ blocks to get $Z\in\mathbb{R}^{C'\times L}$; take the last time index and map to $(H,F)$ with a linear head as in LSTM.
+
+\subsection{TFT-Light}
+\textbf{Idea.} Combine Transformer encoder over enriched temporal inputs with horizon positional embeddings for multi-step decoding, keeping a lightweight design.
+
+\noindent\textbf{Inputs and projection.} Augment $X$ with sinusoidal time covariates (hour, weekday, month). Project features with a linear layer and add context embeddings:
+\[
+H^{(0)} = W_{\text{in}} X + E_d + Z_d\in\mathbb{R}^{L\times D},\quad D=d_{\text{model}}.
+\]
+
+\noindent\textbf{Encoder layers.} For $\ell=1..L_e$:
+\begin{align*}
+\widetilde{H}^{(\ell)} &= \mathrm{LN}\big(H^{(\ell-1)} + \mathrm{MSA}(H^{(\ell-1)})\big),\\
+H^{(\ell)} &= \mathrm{LN}\big(\widetilde{H}^{(\ell)} + \mathrm{FFN}(\widetilde{H}^{(\ell)})\big),
+\end{align*}
+with multi-head self-attention $\mathrm{MSA}$ using
+\[
+\mathrm{Attn}(Q,K,V) = \mathrm{softmax}\!\left( \frac{QK^\top}{\sqrt{D_k}} \right) V\,.
+\]
+Take the last token $h_T = H^{(L_e)}_{T}\in\mathbb{R}^{D}$, repeat across horizon and add positional embeddings $P\in\mathbb{R}^{H\times D}$:
+\[
+U_h = h_T + P_h,\; h=1..H; \quad \widehat{y}_{:,h,:} = \mathrm{MLP}(U_h)\in\mathbb{R}^{F}.
+\]
+
+\noindent\textbf{Loss (Huber + horizon weighting).} With Huber parameter $\beta$ and $\gamma\in(0,1]$:
+\begin{align*}
+\ell_{\beta}(e) &= \begin{cases} \tfrac{1}{2\beta} e^2, & |e|\le \beta,\\ |e| - \tfrac{\beta}{2}, & |e|>\beta, \end{cases}\\
+\mathcal{L} &= \frac{1}{Z} \sum_{n=1}^{N} \sum_{h=1}^{H} \sum_{f=1}^{F} \gamma^{h-1}\, \ell_{\beta}\!\left( \widehat{Y}_{n,h,f} - Y_{n,h,f} \right).
+\end{align*}
+
+\section{Implementation Notes}
+\begin{itemize}
+    \item \textbf{Preprocessing}: district name normalization, per-district temporal sort and 70/15/15 split (train/dev/test), MinMax scaling fitted on train. Optional \texttt{USE\_RAIN} toggles between \texttt{rain} and \texttt{precipitation}. \texttt{LOG1P\_RAIN=1} applies $\log(1+x)$ to precipitation-like features.
+    \item \textbf{Dataset}: \texttt{GlobalWeatherDataset} enumerates valid windows satisfying \texttt{lookback + horizon}, returning $(X, y, \text{district\_idx})$.
+    \item \textbf{Training}: Adam, gradient clipping, early stopping on validation loss, and learning-rate scheduling (OneCycle or ReduceLROnPlateau). Best checkpoint and loss history are saved per run directory.
+    \item \textbf{Evaluation/Visualization}: per-district metrics to \texttt{global\_eval.csv}; micro/macro summaries to \texttt{global\_eval\_overall.csv} or \texttt{overall\_metrics.csv}. Visualization plots loss curves and Pred vs Actual.
+\end{itemize}
+
+\section{Key Parameters}
+\begin{longtable}{>{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{5.8cm} >{\raggedright\arraybackslash}p{6cm}}
+\toprule
+\textbf{Model} & \textbf{Key Parameters} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Model} & \textbf{Key Parameters} & \textbf{Description} \\
+\midrule
+\endhead
+LSTM (6h) & \texttt{lookback = 48}, \texttt{horizon = 6} & Latest artefact shows lookback=48. \\
+& \texttt{hidden\_size = 64}, \texttt{num\_layers = 2}, \texttt{dropout = 0.3} & Capacity and regularization. \\
+& \texttt{emb\_dim = 8}, \texttt{geo\_emb\_dim = 8}, \texttt{fourier\_K = 2} & District + Fourier geo embeddings. \\
+& \texttt{weight\_decay = 1e-4}, \texttt{lr = 1e-3}, \texttt{es\_patience = 5} & Optimisation and early stopping. \\
+\midrule
+TCN (6h) & \texttt{lookback = 48}, \texttt{horizon = 6} & Longer receptive field for daily cycles. \\
+& \texttt{tcn\_channels = 64--128}, \texttt{tcn\_num\_blocks = 4--5}, \texttt{tcn\_kernel\_size = 3--5}, \texttt{dropout = 0.1} & Dilated causal conv blocks. \\
+\midrule
+TFT-Light (6h/12h/7d) & 6h: lookback $\sim$36; 12h: lookback=48; 7d: lookback=30 & Multi-horizon variants (6h, 12h, 7d). \\
+& \texttt{d\_model = 192}, \texttt{nhead = 4}, \texttt{num\_layers = 3}, \texttt{dropout = 0.1--0.18} & Transformer encoder config. \\
+& \texttt{id\_emb\_dim = 8}, \texttt{geo\_emb\_dim = 8}, horizon weighting $\gamma^t$ & Embeddings and horizon emphasis. \\
+\bottomrule
+\end{longtable}
+
+\subsection*{Parameter-Specific Explanations}
+\begin{itemize}
+    \item \textbf{lookback} (tất cả): số giờ quá khứ/1 mẫu (vd 48h). \emph{Dài hơn} thấy chu kỳ tốt hơn nhưng tốn tài nguyên, dễ nhiễu.
+    \item \textbf{horizon} (tất cả): số bước dự báo (6h/12h/7d). \emph{Dài hơn} khó hơn; dùng \texttt{horizon\_gamma} để ưu tiên bước gần.
+    \item \textbf{emb\_dim}, \textbf{id\_emb\_dim} (LSTM/TCN/TFT): kích thước embedding quận. \emph{Lớn} hơn mang nhiều thông tin địa phương hơn nhưng dễ overfit.
+    \item \textbf{geo\_emb\_dim}, \textbf{fourier\_K} (tất cả): đặc trưng địa lý từ lat/lon. \texttt{fourier\_K} cao \,$\Rightarrow$ thêm sin/cos bậc cao (nên để 1--3).
+    \item \textbf{hidden\_size} (LSTM): số chiều ẩn LSTM. \emph{Tăng} năng lực + chi phí; có rủi ro overfit.
+    \item \textbf{tcn\_channels}, \textbf{tcn\_num\_blocks}, \textbf{tcn\_kernel\_size} (TCN): độ rộng/sâu và kernel. \emph{Tăng} \,$\Rightarrow$ receptive field lớn hơn, mô hình mạnh hơn.
+    \item \textbf{d\_model}, \textbf{nhead}, \textbf{num\_layers} (TFT): cấu hình Transformer. \emph{Tăng} d\_model/layers \,$\Rightarrow$ biểu đạt tốt hơn; \texttt{nhead}=4--8 là hợp lý.
+    \item \textbf{dropout}, \textbf{post\_dropout} (tất cả): regularization. \emph{Tăng} để chống overfit; quá cao \,$\Rightarrow$ underfit.
+    \item \textbf{weight\_decay} (tất cả): L2 trong Adam. Ổn định hóa; quá mạnh \,$\Rightarrow$ underfit.
+    \item \textbf{lr}, \textbf{min\_lr}, \textbf{lr\_factor}, \textbf{scheduler} (tất cả): tốc độ học và lịch giảm. OneCycle khi biết \#steps/epoch; Plateau khi val loss đứng.
+    \item \textbf{horizon\_gamma} (LSTM/TCN/TFT): trọng số $\gamma^t$ theo bước $t$. $\gamma<1$ \,$\Rightarrow$ ưu tiên t+1, cải thiện R$^2$ ngắn hạn.
+    \item \textbf{LOG1P\_RAIN} (preprocess): $\log(1+x)$ cho mưa/precipitation; giảm đuôi nặng, ổn định train/metric.
+    \item \textbf{USE\_RAIN} (preprocess): ưu tiên \texttt{rain} nếu có thay vì \texttt{precipitation}.
+\end{itemize}
+
+\section{Metrics, Results and Discussion}
+\subsection{Aggregate (6h comparison across model families)}
+\noindent Latest micro metrics from artefacts:
+\begin{itemize}
+    \item LSTM (6h): from \texttt{lstm/model/global\_eval\_overall.csv}
+    \item TCN (6h): from \texttt{tcn/model/global\_eval\_overall.csv}
+    \item TFT-Light (6h): train via \texttt{python tft/main\_tft\_h6h.py} then read \texttt{tft/model/h6h/overall\_metrics.csv}
+\end{itemize}
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Model (6h)} & \textbf{MAE\textsubscript{micro}} & \textbf{RMSE\textsubscript{micro}} & \textbf{R\textsuperscript{2}\textsubscript{micro}} \\
+        \midrule
+        LSTM (48,6) & 0.0555 & 0.1038 & 0.6102 \\
+        TCN (48,6) & 0.0502 & 0.1005 & 0.6346 \\
+        TFT-Light (6h) & 0.0545 & 0.1045 & 0.9472 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{TFT-Light Variants (12h / 7d; 24h omitted)}
+\noindent Micro metrics from per-run directories:
+\begin{itemize}
+    \item 12h: \texttt{tft/model/h12h/overall\_metrics.csv}
+    \item 7d: \texttt{tft/model/daily7d/overall\_metrics.csv}
+\end{itemize}
+\begin{table}[htbp]
+    \centering
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{TFT Variant} & \textbf{MAE\textsubscript{micro}} & \textbf{RMSE\textsubscript{micro}} & \textbf{R\textsuperscript{2}\textsubscript{micro}} \\
+        \midrule
+        12h (lookback 48) & 0.0740 & 0.1551 & 0.8836 \\
+        7d (lookback 30, daily) & 0.0532 & 0.0981 & 0.9535 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Analysis}
+\begin{itemize}
+    \item \textbf{6h (LSTM vs TCN)}: TCN slightly improves R\textsuperscript{2} over LSTM (0.635 vs 0.610). MAE/RMSE are similar with a small edge to TCN.
+    \item \textbf{TFT-Light (12h/7d)}: strong micro R\textsuperscript{2}, especially at 7d daily horizon, benefitting from temporal features and attention. 24h variant is omitted here.
+    \item \textbf{Precipitation handling}: applying $\log(1+x)$ to precipitation/rain stabilizes training on heavy tails.
+\end{itemize}
+
+\subsection*{Vì sao MAE/RMSE tương tự nhưng R\textsuperscript{2} của TFT (6h) lại cao?}
+Mặc dù sai số tuyệt đối (MAE/RMSE) giữa các mô hình có vẻ ngang nhau, micro $R^2$ của TFT (6h) lại cao hơn hẳn. Lý do:
+\begin{itemize}
+    \item \textbf{Khác biệt về “chuẩn phương sai” (mẫu số của $R^2$)}: $R^2$ so sánh SSE với tổng phương sai mục tiêu (SS\_tot). Với TFT, (i) chỉ đánh giá trên các đặc trưng thời tiết mục tiêu (loại covariates sin/cos thời gian), và (ii) áp dụng $\log(1+x)$ cho mưa. Hai yếu tố này làm SS\_tot lớn hơn tương đối so với SSE, kéo $R^2$ lên dù MAE/RMSE không đổi nhiều.
+    \item \textbf{Thành phần đặc trưng/horizon}: Micro gộp theo $(N\!\times\!H\!\times\!F)$. Trọng số theo horizon trong huấn luyện giúp TFT khớp tốt các bước gần (tương quan cao hơn) mà không nhất thiết giảm mạnh MAE tổng, nhờ đó nâng $R^2$.
+    \item \textbf{Tương quan vs sai số tuyệt đối}: $R^2$ thưởng cho mức độ bám biến động/phương sai. Mô hình có MAE tương tự nhưng bám đúng chu kỳ/điểm đảo chiều sẽ đạt $R^2$ cao hơn đáng kể.
+\end{itemize}
+
+\subsection{Recommendations}
+\begin{enumerate}
+    \item Train and insert TFT (6h) results into both tables for a complete 6h comparison.
+    \item For 6h: if higher R\textsuperscript{2} is desired, consider longer lookback or tuning horizon weighting $\gamma$ to emphasize early steps.
+    \item Continue to validate TFT 12h/7d under data refresh; consider exogenous features (e.g., AQI, terrain) for outer districts.
+\end{enumerate}
+
+\end{document}
+

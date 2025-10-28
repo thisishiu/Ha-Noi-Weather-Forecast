@@ -163,7 +163,7 @@ def build_district_index(train_csv: str) -> Dict[str, int]:
 
 
 def train_global(
-    lookback: int = 24,
+    lookback: int = 48,
     batch_size: int = 128,
     epochs: int = 30,
     lr: float = 1e-3,
