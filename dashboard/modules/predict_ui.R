@@ -5,7 +5,6 @@ library(fontawesome)
 predictTab <- function(tabName){
     return(
         tabItem(tabName = tabName,
-            
             tags$div(
                 h1("Weather Prediction Section"),
                 style = "text-align: center; margin-bottom: 25px; font-weight: bold; color: #333;"
@@ -20,7 +19,7 @@ predictTab <- function(tabName){
                     selectInput(
                     inputId = "predict_selected_model", 
                     "Select model:", 
-                    list("A" = "A", "Choice 1B" = "1B", "Choice 1C" = "1C")
+                    list("TFT" = "TFT")
                     )
                 ),
               
@@ -102,7 +101,7 @@ predictTab <- function(tabName){
                             "background:white; border-radius:20px; padding:20px;",
                             "box-shadow: 0 4px 15px rgba(0,0,0,0.1); height:100%;"
                         ),
-                        tags$h4("Prediction vs Actual",
+                        tags$h4(
                                 style = "font-weight:600; margin-bottom:15px; color:#2b2b2b; text-align:center;"),
                         plotOutput("predict_plot", height = "350px")
                         )
@@ -119,60 +118,21 @@ predictTab <- function(tabName){
 
             
             # --- Dự báo 6 giờ tới ---
+            # predict_ui.R
             tags$div(
-                h3("6-Hour Weather Forecast",
+                h3("12-Hour Weather Forecast",
                     style = "margin-top: 25px; text-align: center; font-weight: 700;
                             font-size: 28px; color: #2b2b2b; letter-spacing: 1px;"),
-                
-                fluidRow(
-                    style = "display: flex; justify-content: space-evenly; gap: 20px; margin-top: 25px;",
-                    
-                    lapply(1:6, function(i) {
-                        predict_probs <- c(0.2, 0.6, 0.1, 0.8, 0.4, 0.7)
-                        rain_threshold <- 0.5
-                        
-                        prob <- predict_probs[i]
-                        is_rain <- prob > rain_threshold
-                        
-                        icon_class <- ifelse(is_rain, "fas fa-cloud-rain", "fas fa-sun")
-                        box_color <- ifelse(is_rain, "#74b9ff", "#ffeaa7")
-                        text_color <- ifelse(is_rain, "#0c2461", "#e67e22")
-                        bg_gradient <- ifelse(is_rain,
-                                                "linear-gradient(145deg, #d6eaff, #74b9ff)",
-                                                "linear-gradient(145deg, #fff8e1, #ffeaa7)")
-                        
-                        weather_text <- ifelse(is_rain,
-                                                paste0("Rainy — ", round(prob * 100), "%"),
-                                                paste0("Sunny — ", round((1 - prob) * 100), "%"))
-                        
-                        column(
-                            width = 2,
-                            tags$div(
-                                style = paste0(
-                                    "background:", bg_gradient, ";",
-                                    "border-radius: 20px;",
-                                    "box-shadow: 0 4px 10px rgba(0,0,0,0.15);",
-                                    "padding: 20px; text-align:center;",
-                                    "transition: all 0.3s ease-in-out;"
-                                ),
-                                # Hiệu ứng hover
-                                tags$script(HTML("
-                                    $(document).on('mouseenter', '.weather-box', function() {
-                                    $(this).css({'transform': 'translateY(-5px)', 'box-shadow': '0 8px 20px rgba(0,0,0,0.2)'});
-                                    }).on('mouseleave', '.weather-box', function() {
-                                    $(this).css({'transform': 'translateY(0)', 'box-shadow': '0 4px 10px rgba(0,0,0,0.15)'});
-                                    });
-                                ")),
-                                class = "predict-weather-box",
-                                
-                                tags$i(class = icon_class, style = paste0("font-size: 45px; color:", text_color, ";")),
-                                tags$h4(weather_text, style = paste0("color:", text_color, "; font-weight: 600; margin-top: 10px;")),
-                                tags$p(paste0("+", i, "h"), style = "color: gray; font-size: 14px; margin-top: 5px;")
-                            )
-                        )   
-                    })
-                )
-            )
+
+                # Khu vực để server cập nhật
+                uiOutput("predict_forecast_ui"),
+
+                tags$p("⬅️ Scroll để xem dự báo 12 giờ tiếp theo ➡️",
+                    style = "text-align: center; color: #7f8c8d; font-size: 14px; margin-top: 10px;")
+            ),
+
+            textOutput("testpredict")
+
 
         )
     )

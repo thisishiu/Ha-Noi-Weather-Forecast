@@ -34,9 +34,18 @@ data = {
     "datetime": [],
     "temperature_2m": [],
     "relative_humidity_2m": [],
-    "wind_speed_10m": [],
-    "cloud_cover": [],
+    "dew_point_2m": [],
+    "apparent_temperature": [],
+    "pressure_msl": [],
+    "surface_pressure": [],
+    "precipitation": [],
     "rain": [],
+    "snowfall": [],
+    "cloud_cover": [],
+    "wind_speed_10m": [],
+    "wind_direction_10m": [],
+    "wind_gusts_10m": [],
+    "shortwave_radiation": [],
     "lat": [],
     "lon": [],
 }
@@ -52,11 +61,11 @@ for _, row in district_list.iterrows():
         "latitude": lat,
         "longitude": lon,
         "hourly": [
-            "temperature_2m",
-            "relative_humidity_2m",
-            "wind_speed_10m",
-            "cloud_cover",
-            "rain",
+            "temperature_2m", "relative_humidity_2m", "dew_point_2m",
+            "apparent_temperature", "pressure_msl", "surface_pressure",
+            "precipitation", "rain", "snowfall", "cloud_cover",
+            "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m",
+            "shortwave_radiation"
         ],
         "start_date": start_date,
         "end_date": end_date,
@@ -78,11 +87,23 @@ for _, row in district_list.iterrows():
         n = len(times)
         data["Ten_Huyen"].extend([name] * n)
         data["datetime"].extend(times)
+
         data["temperature_2m"].extend(hourly.Variables(0).ValuesAsNumpy())
         data["relative_humidity_2m"].extend(hourly.Variables(1).ValuesAsNumpy())
-        data["wind_speed_10m"].extend(hourly.Variables(2).ValuesAsNumpy())
-        data["cloud_cover"].extend(hourly.Variables(3).ValuesAsNumpy())
-        data["rain"].extend(hourly.Variables(4).ValuesAsNumpy())
+        data["dew_point_2m"].extend(hourly.Variables(2).ValuesAsNumpy())
+        data["apparent_temperature"].extend(hourly.Variables(3).ValuesAsNumpy())
+        data["pressure_msl"].extend(hourly.Variables(4).ValuesAsNumpy())
+        data["surface_pressure"].extend(hourly.Variables(5).ValuesAsNumpy())
+        data["precipitation"].extend(hourly.Variables(6).ValuesAsNumpy())
+        data["rain"].extend(hourly.Variables(7).ValuesAsNumpy())
+        data["snowfall"].extend(hourly.Variables(8).ValuesAsNumpy())
+        data["cloud_cover"].extend(hourly.Variables(9).ValuesAsNumpy())
+        data["wind_speed_10m"].extend(hourly.Variables(10).ValuesAsNumpy())
+        data["wind_direction_10m"].extend(hourly.Variables(11).ValuesAsNumpy())
+        data["wind_gusts_10m"].extend(hourly.Variables(12).ValuesAsNumpy())
+        data["shortwave_radiation"].extend(hourly.Variables(13).ValuesAsNumpy())
+
+
         data["lat"].extend([lat] * n)
         data["lon"].extend([lon] * n)
 
