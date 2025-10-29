@@ -7,6 +7,7 @@ source("dashboard/setting.R")
 source("dashboard/modules/home_ui.R")
 source("dashboard/modules/statistic_ui.R")
 source("dashboard/modules/predict_ui.R")
+source("dashboard/modules/history_ui.R")
 
 
 # Hà Nội Weather Forecast Dashboard
@@ -31,9 +32,7 @@ ui <- dashboardPage(
             homeTab("home"),
             statisticTab("statistic"),
             predictTab("predict"),
-            tabItem(tabName = "history",
-                h2("History Section Coming Soon!")
-            )
+            historyTab("history")
         )
     )
 )

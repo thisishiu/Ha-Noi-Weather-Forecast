@@ -9,8 +9,10 @@ source("dashboard/dataLoader.R")
 source("dashboard/modules/home_server.R")
 source("dashboard/modules/statistic_server.R")
 source("dashboard/modules/predict_server.R")
+source("dashboard/modules/history_server.R")
 server <- function(input, output, session) {
     home_server(input, output, session)
     statistic_server(input, output, session)
     predict_server(input, output, session)
+    history_server(input, output, session)
 }
