@@ -16,7 +16,7 @@ ui <- dashboardPage(
     dashboardHeader(title = "Hà Nội Weather Forecast", titleWidth = title_width),
     dashboardSidebar(
         width = bar_width,
-        sidebarMenu(
+        sidebarMenu(id = "tabs",
             menuItem("Home", tabName = "home", icon = icon("home")),
             menuItem("Statistic", tabName = "statistic", icon = icon("chart-bar")),
             menuItem("History", tabName = "history", icon = icon("clock-rotate-left")),

@@ -20,48 +20,44 @@ weather_options <- list(
   "Shortwave Radiation (W/m²)" = "shortwave_radiation"
 )
 
-# --- UI cho tab dự đoán ---
 predictTab <- function(tabName) {
   tabItem(
     tabName = tabName,
 
     tags$div(
-      h1("Weather Forecast — 12-Hour Prediction",
+      h1("Weather Forecast Dashboard",
          style = "text-align:center; font-weight:bold; color:#2b2b2b; margin-bottom:25px;"
       )
     ),
 
-    # --- Khu vực chọn loại thời tiết và khu vực ---
+    # --- Chọn loại thời tiết & khu vực ---
     fluidRow(
       style = "display:flex; justify-content:center; gap:20px; margin-bottom:20px;",
       column(
         width = 3,
-        selectInput(
-          "predict_selected_feature",
-          "Select weather feature:",
-          weather_options
-        )
+        selectInput("predict_selected_feature", "Select weather feature:", weather_options)
       ),
       column(
         width = 3,
-        selectInput(
-          "predict_selected_region",
-          "Select region:",
-          district_list
-        )
+        selectInput("predict_selected_region", "Select region:", district_list)
       )
     ),
 
-    # --- Biểu đồ dự đoán ---
+    # --- Biểu đồ dự đoán 12h ---
     tags$div(
-      h3("Predicted values for next 12 hours",
+      tags$div(
+        style = "background:white; border-radius:20px; padding:20px; 
+                 box-shadow:0 4px 15px rgba(0,0,0,0.1); margin-bottom:40px;",
+        plotOutput("predict_plot_12h", height = "400px")
+      )
+    ),
+
+    # --- Thẻ dự báo 7 ngày ---
+    tags$div(
+      h3("7-Day Forecast",
          style = "text-align:center; font-weight:700; margin-top:25px;"
       ),
-      tags$div(
-        style = "background:white; border-radius:20px; padding:20px;
-                 box-shadow:0 4px 15px rgba(0,0,0,0.1);",
-        plotOutput("predict_plot", height = "400px")
-      )
+      uiOutput("predict_boxes_7d")
     )
   )
 }
