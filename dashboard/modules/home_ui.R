@@ -10,7 +10,7 @@ homeTab <- function(tabName){
                 style = "text-align: center; margin-bottom: 25px; font-weight: bold; color: #333;"
             ),
             fluidRow(
-                # ----------------------- CỘT BÊN TRÁI: THÔNG TIN -----------------------
+                #  CỘT BÊN TRÁI: THÔNG TIN 
                 column(
                     width = info_width,
                     fluidRow(valueBoxOutput("home_district_box", width = 12)),
@@ -38,7 +38,7 @@ homeTab <- function(tabName){
                     )
                 ),
 
-                # ----------------------- CỘT BÊN PHẢI: BẢN ĐỒ + NÚT PREDICT -----------------------
+                #  CỘT BÊN PHẢI: BẢN ĐỒ + NÚT PREDICT 
                 column(
                     width = map_width,
                     div(

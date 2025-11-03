@@ -25,19 +25,37 @@ statistic_server <- function(input, output, session) {
                 req(input$statistic_month)
                 selected_month <- as.numeric(format(as.Date(input$statistic_month), "%m"))
                 selected_year <- as.numeric(format(as.Date(input$statistic_month), "%Y"))
-                df[district %in% districts & month == selected_month & year == selected_year]
+                df[district %in% districts & month == selected_month & year == selected_year] %>%
+                    mutate(datetime = as.Date(datetime, format="%Y-%m-%d")) %>%
+                    group_by(datetime, district) %>%
+                    summarise(
+                        across(everything(), \(x) mean(x, na.rm = TRUE)),
+                        .groups = "drop"
+                    )
             },
             "year" = {
                 req(input$statistic_year)
                 selected_year <- as.numeric(format(as.Date(input$statistic_year), "%Y"))
-                df[district %in% districts & year == selected_year]
+                df[district %in% districts & year == selected_year] %>%
+                    mutate(datetime = as.Date(datetime, format="%Y-%m-%d")) %>%
+                    group_by(datetime, district) %>%
+                    summarise(
+                        across(everything(), \(x) mean(x, na.rm = TRUE)),
+                        .groups = "drop"
+                    )
             },
             "range" = {
                 req(input$statistic_date_range)
                 if(length(input$statistic_date_range) == 2) {
                     start_date <- as.Date(input$statistic_date_range[1])
                     end_date <- as.Date(input$statistic_date_range[2])
-                    df[district %in% districts & as.Date(datetime) >= start_date & as.Date(datetime) <= end_date]
+                    df[district %in% districts & as.Date(datetime) >= start_date & as.Date(datetime) <= end_date] %>%
+                        mutate(datetime = as.Date(datetime, format="%Y-%m-%d")) %>%
+                        group_by(datetime, district) %>%
+                        summarise(
+                            across(everything(), \(x) mean(x, na.rm = TRUE)),
+                            .groups = "drop"
+                        )
                 } else {
                     df[0, ]  # Return empty if range not properly selected
                 }

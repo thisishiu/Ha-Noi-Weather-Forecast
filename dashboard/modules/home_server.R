@@ -11,7 +11,7 @@ home_server <- function(input, output, session) {
     # --- Biến reactive để lưu khu vực đã click ---
     home_selected_district_id <- reactiveVal(NULL)
 
-    # ----------------------- CLICK: highlight + lưu khu vực -----------------------
+    #  CLICK: highlight + lưu khu vực 
     observeEvent(input$home_weather_map_shape_click, {
         home_click <- input$home_weather_map_shape_click
         home_highlight_id <- home_click$id
@@ -28,7 +28,7 @@ home_server <- function(input, output, session) {
             )
     })
 
-    # ----------------------- RESET MAP -----------------------
+    #  RESET MAP 
     observeEvent(input$home_reset_btn, {
         home_selected_district_id(NULL)
         leafletProxy("home_weather_map", data = df_mean) %>%
@@ -42,7 +42,7 @@ home_server <- function(input, output, session) {
             )
     })
 
-    # ----------------------- NÚT PREDICT (HIỆN SAU KHI CLICK) -----------------------
+    #  NÚT PREDICT (HIỆN SAU KHI CLICK) 
     output$home_predict_btn <- renderUI({
         req(home_selected_district_id())
         tags$div(
@@ -66,7 +66,7 @@ home_server <- function(input, output, session) {
         }
     })
 
-    # ----------------------- DỮ LIỆU CỦA KHU VỰC -----------------------
+    #  DỮ LIỆU CỦA KHU VỰC 
     home_filtered_data <- reactive({
         if (is.null(home_selected_district_id())) {
             df_mean %>%
@@ -84,7 +84,7 @@ home_server <- function(input, output, session) {
         }
     })
 
-    # ----------------------- HIỂN THỊ MAP -----------------------
+    #  HIỂN THỊ MAP 
     output$home_weather_map <- renderLeaflet({
         leaflet(df_mean) %>%
             addTiles() %>%
@@ -98,7 +98,7 @@ home_server <- function(input, output, session) {
             )
     })
 
-    # ----------------------- VALUE BOXES -----------------------
+    #  VALUE BOXES 
     output$home_district_box <- renderValueBox({
         home_data <- home_filtered_data()
         valueBox(

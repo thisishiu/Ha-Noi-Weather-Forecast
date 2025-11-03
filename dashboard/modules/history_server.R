@@ -8,7 +8,7 @@ source("dashboard/setting.R")
 
 history_server <- function(input, output, session) {
         weather_data <- reactive({
-        df <- read_csv("weather_date_2.csv", show_col_types = FALSE)
+        df <- read_csv("data/weather_date_2.csv", show_col_types = FALSE)
         df <- df %>%
         mutate(datetime = as_datetime(datetime)) %>%
         arrange(datetime)

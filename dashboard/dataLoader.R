@@ -6,26 +6,25 @@ library(data.table)
 
 system("python dashboard/get_data.py")
 
-# geometry df ------------------------------------------------
+# geometry df 
 df_geo <- st_read("data/diaphanhuyen.geojson")
 df_geo <- df_geo[df_geo$Ten_Tinh == "Hà Nội", ]
-# ------------------------------------------------------------
 
-# main df ----------------------------------------------------
-df <- fread("data/weather_date_2.csv")
-# df$datetime <- as.POSIXct(df$datetime)
-df$datetime <- as.Date(df$datetime)
+
+# main df 
+df <- fread("data/weather_date_3.csv")
+df$datetime <- as.POSIXct(df$datetime)
+# df$datetime <- as.Date(df$datetime)
 df$district_fix <- stri_trans_general(df$district, "Latin-ASCII")
 df$lon <- NULL
 df$lat <- NULL
 df <- arrange(df, datetime, district)
-# ------------------------------------------------------------
 
-# collumn use to ana -----------------------------------------
+# collumn use to ana 
 stats_col <- c("temperature_2m", "relative_humidity_2m", "cloud_cover", "wind_speed_10m", "shortwave_radiation", "rain")
-# ------------------------------------------------------------
 
-# average each district --------------------------------------
+
+# average each district 
 df_mean <- df %>%
         group_by(district_fix, district) %>%
         summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = 'drop')
@@ -33,10 +32,8 @@ df_mean <- df %>%
 df_mean <- df_geo %>%
     left_join(df_mean, by = c("Ten_Huyen" = "district_fix"))
 df_mean <- df_mean %>% select(geometry, district, all_of(stats_col))
-# ------------------------------------------------------------
 
-
-# df of all district -----------------------------------------
+# df of all district 
 df_hanoi <- df %>%
     select(datetime, hour, day, month, year, all_of(stats_col)) %>%
     group_by(datetime, hour, day, month, year) %>%
@@ -47,14 +44,13 @@ df_hanoi <- df %>%
         district = "Hà Nội"
     )
 df_hanoi <- as.data.table(df_hanoi)
-# ------------------------------------------------------------
 
-# add df_hanoi to main df ------------------------------------
+
+# add df_hanoi to main df 
 df <- rbind(df, df_hanoi, fill=TRUE)
 df <- as.data.table(df)
-# ------------------------------------------------------------
 
-
-# list of district in Ha Noi (include Ha Noi) ----------------
+# list of district in Ha Noi (include Ha Noi) 
 district_list <- unique(df$district)
-# ------------------------------------------------------------
+
+

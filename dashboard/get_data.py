@@ -14,7 +14,8 @@ openmeteo = openmeteo_requests.Client(session=retry_session)
 url = "https://api.open-meteo.com/v1/forecast"
 
 
-df = pd.read_csv("data/weather_date_2.csv", parse_dates=['datetime'])
+data_path = "data/weather_date_3.csv"
+df = pd.read_csv(data_path, parse_dates=['datetime'])
 print(min(df['datetime']), max(df['datetime']))
 district_list = df[["district", "lat", "lon"]].drop_duplicates()
 data_wrap = []
@@ -166,4 +167,4 @@ new_data['month'] = new_data['datetime'].dt.month
 new_data['year'] = new_data['datetime'].dt.year
 new_data['datetime'] = new_data['datetime'].dt.tz_localize(None)
 
-new_data.to_csv("data/weather_date_2.csv", mode="a", header=False, index=False)
+new_data.to_csv(data_path, mode="a", header=False, index=False)

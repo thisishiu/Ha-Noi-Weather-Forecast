@@ -11,3 +11,6 @@ map_width <- 9
 
 # Statistic tab
 panel_width <- 2
+
+# Predict tab
+python_path <- "C:/Users/hqhz1/AppData/Local/Programs/Python/Python312/python.exe"
