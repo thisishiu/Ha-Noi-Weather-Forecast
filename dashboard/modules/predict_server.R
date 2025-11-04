@@ -71,9 +71,6 @@ predict_model_conformal <- function(data, district_name, model_session, feature_
         stop("Not enough data !")
 
 
-    # print(mode)
-    # print(class(hist_data))
-
     X <- array(
         as.matrix(
             hist_data[, ..predict_features]
@@ -162,7 +159,7 @@ predict_server <- function(input, output, session) {
                     vjust = -1, size = 3.5, color = "#444") +
         theme_minimal(base_size = 14) +
         labs(
-            title = paste("12-Hour Forecast with Conformal Interval —", input$predict_selected_feature),
+            title = paste("12-Hour Forecast with Conformal Interval"),
             x = "Time", y = input$predict_selected_feature
         ) +
         theme(
@@ -250,4 +247,73 @@ predict_server <- function(input, output, session) {
         # })
         # )
     })
+
+    output$predict_stat_boxes <- renderUI({
+        stats <- data.frame(
+            Metric = c("R² Score", "MSE", "MAE"),
+            Value  = c("0.85", "1.25", "0.95"),
+            Color  = c("#4facfe", "#00c6ff", "#0078D7"),
+            Icon   = c("chart-line", "calculator", "chart-area")
+        )
+
+        fluidRow(
+            style = "display:flex; justify-content:center; flex-wrap:wrap; gap:20px;",
+            lapply(1:nrow(stats), function(i) {
+            tags$div(
+                style = paste0(
+                    "width: 100%; background:#ffffff; color:#222222;",
+                    "padding:18px 14px; border-radius:18px; text-align:center;",
+                    "box-shadow:0 4px 12px rgba(0,0,0,0.08); border:1px solid #e6e6e6;",
+                    "font-family:'Segoe UI', sans-serif; transition:all 0.25s ease;",
+                    "height:120px; display:flex; flex-direction:column; justify-content:center;"
+                ),
+                tags$div(
+                    style = "font-size:24px; margin-bottom:6px; color:#0078D7;",
+                    tags$i(class = paste0("fa-solid fa-", stats$Icon[i]))
+                ),
+                tags$h4(
+                    stats$Metric[i],
+                    style = "margin-bottom:6px; font-weight:600; font-size:16px;"
+                ),
+                tags$div(
+                    style = paste0(
+                        "font-size:26px; font-weight:700; color:", stats$Color[i], ";"
+                    ),
+                    stats$Value[i]
+                )
+            )
+            })
+        )
+    })
+
+
+    # output$predict_r2_box <- renderValueBox({
+    #     valueBox(
+    #         "R² Score",
+    #         subtitle = "0.85",
+    #         icon = icon("chart-line"),
+    #         color = "aqua",
+    #         width = NULL
+    #     )
+    # })
+
+    # output$predict_mse_box <- renderValueBox({
+    #     valueBox(
+    #         "MSE",
+    #         subtitle = "1.25",
+    #         icon = icon("calculator"),
+    #         color = "yellow",
+    #         width = NULL
+    #     )
+    # })
+
+    # output$predict_mae_box <- renderValueBox({
+    #     valueBox(
+    #         "MAE",
+    #         subtitle = "0.95",
+    #         icon = icon("calculator"),
+    #         color = "orange",
+    #         width = NULL
+    #     )
+    # })
 }

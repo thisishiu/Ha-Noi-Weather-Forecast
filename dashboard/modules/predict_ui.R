@@ -2,7 +2,7 @@ library(shiny)
 library(shinydashboard)
 library(fontawesome)
 
-# --- Danh sách các loại thời tiết ---
+#  Danh sách các loại thời tiết 
 weather_options <- list(
     "Temperature (°C)" = "temperature_2m",
     "Humidity (%)" = "relative_humidity_2m",
@@ -30,34 +30,52 @@ predictTab <- function(tabName) {
       		)
     	),
 
-		# --- Chọn loại thời tiết & khu vực ---
+		# Chọn loại thời tiết & khu vực 
 		fluidRow(
-		style = "display:flex; justify-content:center; gap:20px; margin-bottom:20px;",
-		column(
-			width = 3,
-			selectInput("predict_selected_feature", "Select weather feature:", weather_options)
-		),
-		column(
-			width = 3,
-			selectInput("predict_selected_region", "Select region:", district_list)
-		)
-		),
-
-		# --- Biểu đồ dự đoán 12h ---
-		tags$div(
-		tags$div(
-			style = "background:white; border-radius:20px; padding:20px; 
-					box-shadow:0 4px 15px rgba(0,0,0,0.1); margin-bottom:40px;",
-			plotOutput("predict_plot_12h", height = "400px")
-		)
+			style = "display:flex; justify-content:center; gap:20px; margin-bottom:20px;",
+			column(
+				width = 3,
+				selectInput("predict_selected_feature", "Select weather feature:", weather_options)
+			),
+			column(
+				width = 3,
+				selectInput("predict_selected_region", "Select region:", district_list)
+			)
 		),
 
-		# --- Thẻ dự báo 7 ngày ---
-		tags$div(
-		h3("7-Day Forecast",
-			style = "text-align:center; font-weight:700; margin-top:25px;"
+		# Biểu đồ dự đoán 12h 
+		fluidRow(
+			column(
+				width = 3,
+				# fluidRow(valueBoxOutput("predict_r2_box", width = 12)),
+				# fluidRow(valueBoxOutput("predict_mse_box", width = 12)),
+				# fluidRow(valueBoxOutput("predict_mae_box", width = 12)), 
+				fluidRow(
+					style = "display:flex; justify-content:center; gap:20px; margin-bottom:20px;",
+					uiOutput("predict_stat_boxes")
+				),
+			),
+			column(
+				width = 9,
+				tags$div(
+					tags$div(
+						style = "background:white; border-radius:20px; padding:20px; 
+								box-shadow:0 4px 15px rgba(0,0,0,0.1); margin-bottom:40px;",
+						plotOutput("predict_plot_12h", height = "400px")
+					)
+				)
+			)
 		),
-		uiOutput("predict_boxes_7d")
+
+
+		# Thẻ dự báo 7 ngày 
+		fluidRow(
+			tags$div(
+				h3("7-Day Forecast",
+					style = "text-align:center; font-weight:700; margin-top:25px;"
+				),
+			uiOutput("predict_boxes_7d")
+			)
 		)
 	)
 }
