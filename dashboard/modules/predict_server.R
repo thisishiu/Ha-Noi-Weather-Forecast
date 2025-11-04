@@ -28,7 +28,7 @@ np <- import("numpy", convert = FALSE)
 # =========================================================
 predict_data <- df
 model_12h_path <- "dashboard/model/tft_12h.onnx"
-
+model_7d_path <- "dashboard/model/tft_7d.onnx"
 session_12h <- onnxruntime$InferenceSession(model_12h_path)
 
 predict_features <- c(
@@ -92,9 +92,6 @@ predict_model_conformal <- function(data, district_name, model_session, feature_
     list(values = preds_feature, lower = lower, upper = upper, confidence_each = confidence_each)
 }
 
-# =========================================================
-# METEO API FORECAST (7D)
-# =========================================================
 
 # --- Mapping hourly <-> daily ---
 feature_mapping <- list(
@@ -154,7 +151,7 @@ get_meteo_forecast <- function(district_name, feature_name) {
     "&timezone=auto"
   )
 
-  message(paste("🌤️ Fetching Meteo API:", url))
+#   message(paste("🌤️ Fetching:", url))
 
   res <- tryCatch({
     GET(url, timeout(10))
@@ -231,7 +228,7 @@ predict_server <- function(input, output, session) {
   })
 
   # -------------------
-  # 7-DAY FORECAST (METEO API)
+  # 7-DAY FORECAST 
   # -------------------
   output$predict_boxes_7d <- renderUI({
     req(input$predict_selected_region, input$predict_selected_feature)
@@ -275,10 +272,16 @@ predict_server <- function(input, output, session) {
   # -------------------
   # METRICS BOXES
   # -------------------
+
+    metrics <- read.csv("dashboard/model/overall_metrics.csv")
+    mae  <- round(metrics$MAE[1], 2)
+    rmse <- round(metrics$RMSE[1], 2)
+    r2   <- round(metrics$R2[1], 2)
+
   output$predict_stat_boxes <- renderUI({
     stats <- data.frame(
-      Metric = c("R² Score", "MSE", "MAE"),
-      Value  = c("0.85", "1.25", "0.95"),
+      Metric = c("R² Score", "RMSE", "MAE"),
+      Value  = c(r2, rmse, mae),
       Color  = c("#4facfe", "#00c6ff", "#0078D7"),
       Icon   = c("chart-line", "calculator", "chart-area")
     )
