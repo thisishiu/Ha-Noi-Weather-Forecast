@@ -1,5 +1,5 @@
 # Data paths
-data_path <- "data/weather_date_3.csv"
+data_path <- "data/weather_date_2.csv"
 geojson_path <- "data/diaphanhuyen.geojson"
 
 # Layout
@@ -14,4 +14,4 @@ map_width <- 9
 panel_width <- 2
 
 # Predict tab
-python_path <- "C:/Users/hqhz1/AppData/Local/Programs/Python/Python312/python.exe"
+python_path <- "C:/Users/PC/AppData/Local/Programs/Python/Python39/python.exe"

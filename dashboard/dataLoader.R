@@ -21,8 +21,8 @@ df <- fread(data_path)
 df$datetime <- as.POSIXct(df$datetime)
 # df$datetime <- as.Date(df$datetime)
 df$district_fix <- stri_trans_general(df$district, "Latin-ASCII")
-df$lon <- NULL
-df$lat <- NULL
+# df$lon <- NULL
+# df$lat <- NULL
 df <- arrange(df, datetime, district)
 
 # collumn use to ana 
