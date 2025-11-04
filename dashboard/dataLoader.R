@@ -3,16 +3,21 @@ library(dplyr)
 library(stringi)
 library(data.table)
 
-
+source("dashboard/setting.R")
 system("python dashboard/get_data.py")
 
 # geometry df 
-df_geo <- st_read("data/diaphanhuyen.geojson")
-df_geo <- df_geo[df_geo$Ten_Tinh == "Hà Nội", ]
+if (!file.exists(geojson_path)) {
+    cat(paste0("[data loader] No geojson file at ", geojson_path ," config in setting.R ", "\n"))
+    q()
+} else {
+    df_geo <- st_read(geojson_path)
+    df_geo <- df_geo[df_geo$Ten_Tinh == "Hà Nội", ]
+}
 
 
 # main df 
-df <- fread("data/weather_date_3.csv")
+df <- fread(data_path)
 df$datetime <- as.POSIXct(df$datetime)
 # df$datetime <- as.Date(df$datetime)
 df$district_fix <- stri_trans_general(df$district, "Latin-ASCII")

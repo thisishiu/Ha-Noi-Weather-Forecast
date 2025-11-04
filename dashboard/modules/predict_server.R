@@ -19,8 +19,6 @@ onnxruntime <- import("onnxruntime")
 np <- import("numpy", convert = FALSE)
 
 #  LOAD DATA 
-# predict_copy_data <- df
-# predict_data <- setDF(predict_copy_data)
 predict_data <- df
 
 
@@ -194,26 +192,62 @@ predict_server <- function(input, output, session) {
         df_pred <- data.frame(Day = weekdays(days), Date = days, Value = round(preds, 2), Conf = confs)
 
         fluidRow(
-        style = "display:flex; justify-content:center; flex-wrap:wrap; gap:15px;",
-        lapply(1:7, function(i) {
-            tags$div(
-            style = paste0(
-                "width: 180px; background: linear-gradient(135deg, #4facfe, #00f2fe); color:white;",
-                "padding:15px; border-radius:15px; text-align:center; box-shadow:0 4px 10px rgba(0,0,0,0.2);"
-            ),
-            tags$h4(df_pred$Day[i], style = "margin-bottom:8px; font-weight:bold;"),
-            tags$p(format(df_pred$Date[i], "%d %b"), style = "font-size:13px; margin-bottom:8px;"),
-            tags$div(
-                style = "font-size:30px; font-weight:700; margin-bottom:5px;",
-                paste0(df_pred$Value[i])
-            ),
-            tags$p(input$predict_selected_feature, style = "font-size:13px; margin-bottom:4px;"),
-            tags$div(
-                style = "font-size:13px; color:#f0f0f0;",
-                paste0("Confidence: ", df_pred$Conf[i], "%")
-            )
-            )
-        })
+            style = "display:flex; justify-content:center; flex-wrap:wrap; gap:20px;",
+            lapply(1:7, function(i) {
+                tags$div(
+                style = paste0(
+                    "width: 180px; background:#ffffff; color:#222222;",
+                    "padding:18px 14px; border-radius:18px; text-align:center;",
+                    "box-shadow:0 4px 12px rgba(0,0,0,0.08); transition:all 0.25s ease;",
+                    "border:1px solid #e6e6e6; cursor:default;",
+                    "font-family: 'Segoe UI', sans-serif;"
+                ),
+                tags$h4(
+                    df_pred$Day[i],
+                    style = "margin-bottom:6px; font-weight:600; font-size:16px;"
+                ),
+                tags$p(
+                    format(df_pred$Date[i], '%d %b'),
+                    style = "font-size:13px; color:#666; margin-bottom:10px;"
+                ),
+                tags$div(
+                    style = "font-size:30px; font-weight:700; margin-bottom:6px; color:#0078D7;",
+                    paste0(df_pred$Value[i])
+                ),
+                tags$p(
+                    input$predict_selected_feature,
+                    style = "font-size:13px; color:#333; margin-bottom:6px;"
+                ),
+                tags$div(
+                    style = "font-size:13px; color:#666;",
+                    paste0("Confidence: ", df_pred$Conf[i], "%")
+                )
+                )
+            })
         )
+
+
+        # fluidRow(
+        # style = "display:flex; justify-content:center; flex-wrap:wrap; gap:15px;",
+        # lapply(1:7, function(i) {
+        #     tags$div(
+        #     style = paste0(
+        #         "width: 180px; background: linear-gradient(135deg, #4facfe, #00f2fe); color:white;",
+        #         "padding:15px; border-radius:15px; text-align:center; box-shadow:0 4px 10px rgba(0,0,0,0.2);"
+        #     ),
+        #     tags$h4(df_pred$Day[i], style = "margin-bottom:8px; font-weight:bold;"),
+        #     tags$p(format(df_pred$Date[i], "%d %b"), style = "font-size:13px; margin-bottom:8px;"),
+        #     tags$div(
+        #         style = "font-size:30px; font-weight:700; margin-bottom:5px;",
+        #         paste0(df_pred$Value[i])
+        #     ),
+        #     tags$p(input$predict_selected_feature, style = "font-size:13px; margin-bottom:4px;"),
+        #     tags$div(
+        #         style = "font-size:13px; color:#f0f0f0;",
+        #         paste0("Confidence: ", df_pred$Conf[i], "%")
+        #     )
+        #     )
+        # })
+        # )
     })
 }

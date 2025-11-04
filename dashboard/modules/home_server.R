@@ -8,7 +8,7 @@ source("dashboard/setting.R")
 
 home_server <- function(input, output, session) {
 
-    # --- Biến reactive để lưu khu vực đã click ---
+    # Biến reactive để lưu khu vực đã click 
     home_selected_district_id <- reactiveVal(NULL)
 
     #  CLICK: highlight + lưu khu vực 
@@ -49,7 +49,7 @@ home_server <- function(input, output, session) {
             style = "text-align:center; margin-top:15px;",
             actionButton(
                 inputId = "home_go_predict",
-                label = paste("🔮 Predict for", home_selected_district_id()),
+                label = paste("Predict for", home_selected_district_id()),
                 class = "btn btn-success",
                 style = "font-weight:bold; border-radius:12px; width:80%;"
             )
@@ -62,7 +62,7 @@ home_server <- function(input, output, session) {
         if (!is.null(district_clicked)) {
             updateSelectInput(session, "predict_selected_region", selected = district_clicked)
             updateTabItems(session, "tabs", "predict")
-            showNotification(paste("🔍 Predicting:", district_clicked), type = "message")
+            showNotification(paste("Predicting:", district_clicked), type = "message")
         }
     })
 

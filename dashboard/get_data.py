@@ -3,9 +3,10 @@ import time
 import pytz
 import requests_cache
 import openmeteo_requests
+import pandas as pd
+from rpy2.robjects import r
 from retry_requests import retry
 from datetime import datetime, timedelta, timezone
-import pandas as pd
 
 # --- Setup cache & retry ---
 cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
@@ -13,10 +14,14 @@ retry_session = retry(cache_session, retries=3, backoff_factor=0.3)
 openmeteo = openmeteo_requests.Client(session=retry_session)
 url = "https://api.open-meteo.com/v1/forecast"
 
+r.source("dashboard/setting.R")
+data_path = r['data_path'][0]
 
-data_path = "data/weather_date_3.csv"
+if not os.path.exists(data_path):
+    raise FileNotFoundError(f"[data] No data at: {data_path}, config in setting.R")
+
 df = pd.read_csv(data_path, parse_dates=['datetime'])
-print(min(df['datetime']), max(df['datetime']))
+print(f"Data start: {min(df['datetime'])}, end: {max(df['datetime'])}")
 district_list = df[["district", "lat", "lon"]].drop_duplicates()
 data_wrap = []
 
@@ -25,10 +30,6 @@ end_date = now.strftime("%Y-%m-%d")
 start_time = df['datetime'].max()
 start_time = start_time.tz_localize("Asia/Bangkok")
 start_date = start_time.strftime("%Y-%m-%d")
-
-# print(now)
-# print(start_date)
-# print(end_date)
 
 data = {
     "Ten_Huyen": [],
@@ -111,7 +112,7 @@ for _, row in district_list.iterrows():
         time.sleep(0.2)  
 
     except Exception as e:
-        print(f"{name}: {e}")
+        print(f"[call API] {name}: {e}")
 
 new_data = pd.DataFrame(data)
 
@@ -168,3 +169,4 @@ new_data['year'] = new_data['datetime'].dt.year
 new_data['datetime'] = new_data['datetime'].dt.tz_localize(None)
 
 new_data.to_csv(data_path, mode="a", header=False, index=False)
+print("[data] Updated!")
